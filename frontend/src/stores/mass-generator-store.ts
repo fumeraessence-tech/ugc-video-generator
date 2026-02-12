@@ -22,6 +22,8 @@ import type {
 interface MassGeneratorStore extends WizardState {
   // Avatar reference images state (not in WizardState type)
   avatarReferenceImages: string[];
+  // Voice selection for TTS
+  voice: string;
 
   // Navigation
   setCurrentStep: (step: WizardStep) => void;
@@ -40,6 +42,7 @@ interface MassGeneratorStore extends WizardState {
   setSelectedAvatarId: (id: string | null) => void;
   setAvatarDNA: (dna: AvatarDNA | null) => void;
   setAvatarReferenceImages: (images: string[]) => void;
+  setVoice: (voice: string) => void;
 
   // Style
   setPlatform: (platform: Platform) => void;
@@ -67,7 +70,7 @@ const STEPS: WizardStep[] = ["product", "avatar", "brief", "script", "generate",
 
 const initialState: Pick<MassGeneratorStore,
   'currentStep' | 'productImages' | 'productName' | 'brandName' | 'productDNA' |
-  'selectedAvatarId' | 'avatarDNA' | 'avatarReferenceImages' | 'platform' | 'style' |
+  'selectedAvatarId' | 'avatarDNA' | 'avatarReferenceImages' | 'voice' | 'platform' | 'style' |
   'tone' | 'duration' | 'userPrompt' | 'creativeBrief' | 'productionBible' | 'script' |
   'isLoading' | 'error'
 > = {
@@ -79,6 +82,7 @@ const initialState: Pick<MassGeneratorStore,
   selectedAvatarId: null,
   avatarDNA: null,
   avatarReferenceImages: [],
+  voice: "Kore",
   platform: "instagram_reels" as const,
   style: "testimonial" as const,
   tone: "excited" as const,
@@ -139,6 +143,8 @@ export const useMassGeneratorStore = create<MassGeneratorStore>()(
 
       setAvatarReferenceImages: (images) => set({ avatarReferenceImages: images }),
 
+      setVoice: (voice) => set({ voice }),
+
       // Style
       setPlatform: (platform) => set({ platform }),
 
@@ -176,7 +182,9 @@ export const useMassGeneratorStore = create<MassGeneratorStore>()(
         brandName: state.brandName,
         productDNA: state.productDNA,
         selectedAvatarId: state.selectedAvatarId,
+        avatarDNA: state.avatarDNA,
         avatarReferenceImages: state.avatarReferenceImages,
+        voice: state.voice,
         platform: state.platform,
         style: state.style,
         tone: state.tone,

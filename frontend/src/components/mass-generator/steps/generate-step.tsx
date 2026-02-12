@@ -143,9 +143,13 @@ export function GenerateStep() {
         instagram_reels: "9:16",
         tiktok: "9:16",
         youtube_shorts: "9:16",
+        youtube_long: "16:9",
         youtube: "16:9",
         instagram_feed: "4:5",
         facebook: "1:1",
+        meta_ads: "9:16",
+        pinterest: "9:16",
+        snapchat: "9:16",
       };
       const aspectRatio = platformToAspectRatio[platform] || "9:16";
 
@@ -292,9 +296,13 @@ export function GenerateStep() {
         instagram_reels: "9:16",
         tiktok: "9:16",
         youtube_shorts: "9:16",
+        youtube_long: "16:9",
         youtube: "16:9",
         instagram_feed: "4:5",
         facebook: "1:1",
+        meta_ads: "9:16",
+        pinterest: "9:16",
+        snapchat: "9:16",
       };
       const aspectRatio = platformToAspectRatio[platform] || "9:16";
 
@@ -553,6 +561,51 @@ export function GenerateStep() {
                       <span className="text-muted-foreground">Key Points:</span>{" "}
                       {creativeBrief.key_selling_points.join(", ")}
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Reference Images */}
+              {(productImages.length > 0 || avatarReferenceImages.length > 0) && (
+                <div className="border rounded-lg p-3">
+                  <h4 className="font-medium text-sm mb-2">Reference Images</h4>
+                  <div className="space-y-3">
+                    {productImages.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1.5">
+                          Product ({productImages.length} image{productImages.length !== 1 ? "s" : ""})
+                        </p>
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {productImages.map((img, i) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={i}
+                              src={img}
+                              alt={`Product ${i + 1}`}
+                              className="w-16 h-16 rounded object-cover border shrink-0"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {avatarReferenceImages.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1.5">
+                          Avatar ({avatarReferenceImages.length} image{avatarReferenceImages.length !== 1 ? "s" : ""})
+                        </p>
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {avatarReferenceImages.map((img, i) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={i}
+                              src={img}
+                              alt={`Avatar ref ${i + 1}`}
+                              className="w-16 h-16 rounded object-cover border shrink-0"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

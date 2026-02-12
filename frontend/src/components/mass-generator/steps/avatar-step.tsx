@@ -83,6 +83,8 @@ export function AvatarStep() {
     setTone,
     duration,
     setDuration,
+    voice,
+    setVoice,
     prevStep,
     nextStep,
   } = useMassGeneratorStore();
@@ -91,7 +93,6 @@ export function AvatarStep() {
   const [allAvatars, setAllAvatars] = useState<DisplayAvatar[]>([]);
   const [loadingAvatars, setLoadingAvatars] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState<string>("Kore");
   const [viewDNAAvatar, setViewDNAAvatar] = useState<DisplayAvatar | null>(null);
   const [deleteConfirmAvatar, setDeleteConfirmAvatar] = useState<DisplayAvatar | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -102,21 +103,22 @@ export function AvatarStep() {
       const res = await fetch("/api/avatars");
       if (res.ok) {
         const avatars = await res.json();
+        // Supabase returns snake_case columns — map to camelCase DisplayAvatar
         const mapped: DisplayAvatar[] = avatars.map((a: {
           id: string;
           name: string;
           tag?: string;
-          thumbnailUrl?: string;
-          referenceImages?: string[];
-          isSystem: boolean;
+          thumbnail_url?: string;
+          reference_images?: string[];
+          is_system: boolean;
           dna: Record<string, string>;
         }) => ({
           id: a.id,
           name: a.name,
           tag: a.tag,
-          thumbnailUrl: a.thumbnailUrl,
-          referenceImages: a.referenceImages || (a.thumbnailUrl ? [a.thumbnailUrl] : []),
-          isSystem: a.isSystem,
+          thumbnailUrl: a.thumbnail_url,
+          referenceImages: a.reference_images || (a.thumbnail_url ? [a.thumbnail_url] : []),
+          isSystem: a.is_system,
           dna: a.dna ? {
             face: a.dna.face || "",
             skin: a.dna.skin || "",
@@ -533,7 +535,7 @@ export function AvatarStep() {
               <Volume2 className="size-4" />
               Voice
             </Label>
-            <Select value={selectedVoice} onValueChange={setSelectedVoice}>
+            <Select value={voice} onValueChange={setVoice}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
