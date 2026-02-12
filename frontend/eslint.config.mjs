@@ -18,6 +18,7 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-explicit-any": "warn",
       "react/no-unescaped-entities": "warn",
       "@next/next/no-html-link-for-pages": "warn",
+      "react-compiler/react-compiler": "warn",
     },
   },
 ]);
