@@ -299,26 +299,29 @@ export function CreateAvatarDialog({
       const imageUrl = allImageUrls[0]!;
       let imageBase64: string | null = null;
 
-      if (imageUrl.startsWith("/uploads/")) {
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        imageBase64 = await new Promise((resolve) => {
-          reader.onloadend = () => {
-            const result = reader.result as string;
-            resolve(result.split(",")[1]);
-          };
-          reader.readAsDataURL(blob);
-        });
+      // Convert image URL to base64 — works for both local /uploads/ and full Supabase URLs
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      imageBase64 = await new Promise((resolve) => {
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result.split(",")[1]);
+        };
+        reader.readAsDataURL(blob);
+      });
+
+      if (!imageBase64) {
+        throw new Error("Failed to convert image to base64");
       }
+
+      const mimeType = blob.type || "image/jpeg";
 
       const res = await fetch("/api/avatars/extract-dna", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          images: imageBase64
-            ? [{ data: imageBase64, mime_type: "image/jpeg" }]
-            : [],
+          images: [{ data: imageBase64, mime_type: mimeType }],
         }),
       });
 
