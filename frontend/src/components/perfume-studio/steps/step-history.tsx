@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { backendFetch } from "@/lib/backend-fetch";
 
 interface HistoryJob {
   job_id: string;
@@ -34,7 +33,7 @@ export function StepHistory() {
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/history`);
+      const res = await backendFetch("/api/v1/perfume/history");
       const data = await res.json();
       setHistory(data.history || []);
     } catch (e) {
@@ -51,9 +50,8 @@ export function StepHistory() {
   const downloadJobZip = async (job: HistoryJob) => {
     const successResults = job.results.filter((r) => r.status === "success");
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/download-batch-zip`, {
+      const res = await backendFetch("/api/v1/perfume/download-batch-zip", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ batch_results: successResults }),
       });
       const blob = await res.blob();

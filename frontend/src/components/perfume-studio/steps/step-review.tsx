@@ -13,8 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { usePerfumeStudioStore, type PerfumeGeneratedImage } from "@/stores/perfume-studio-store";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { backendFetch } from "@/lib/backend-fetch";
 
 export function StepReview() {
   const store = usePerfumeStudioStore();
@@ -33,9 +32,8 @@ export function StepReview() {
 
     try {
       const product = store.csvProducts[productIdx] || {};
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/regenerate-image`, {
+      const res = await backendFetch("/api/v1/perfume/regenerate-image", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           perfume_info: {
             perfume_name: product.cleaned_name || product.perfume_name || result.perfume_name,
@@ -67,9 +65,8 @@ export function StepReview() {
   const downloadProductZip = async (result: typeof successResults[0]) => {
     const urls = result.images.filter((i) => i.image_url && !i.image_url.startsWith("Error")).map((i) => i.image_url);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/download-zip`, {
+      const res = await backendFetch("/api/v1/perfume/download-zip", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "product", product_name: result.perfume_name, image_urls: urls }),
       });
       const blob = await res.blob();
@@ -86,9 +83,8 @@ export function StepReview() {
 
   const downloadBatchZip = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/download-batch-zip`, {
+      const res = await backendFetch("/api/v1/perfume/download-batch-zip", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ batch_results: successResults }),
       });
       const blob = await res.blob();

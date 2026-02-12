@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import type { ProductDNA } from "@/types/mass-generator";
+import { backendFetch } from "@/lib/backend-fetch";
 
 // Analysis stages for progress tracking
 type AnalysisStage = "idle" | "loading_images" | "analyzing" | "extracting" | "complete" | "error";
@@ -206,11 +207,10 @@ export function ProductStep() {
         message: "AI is analyzing product visuals...",
       });
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/mass-generator/analyze-product`,
+      const response = await backendFetch(
+        "/api/v1/mass-generator/analyze-product",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             image_urls: productImages,
             product_name: productName || null,

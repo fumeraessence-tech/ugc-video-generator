@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMassGeneratorStore } from "@/stores/mass-generator-store";
+import { backendFetch } from "@/lib/backend-fetch";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 // Using native img for dynamically generated storyboard images
@@ -148,11 +149,10 @@ export function GenerateStep() {
       };
       const aspectRatio = platformToAspectRatio[platform] || "9:16";
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/storyboard/generate`,
+      const response = await backendFetch(
+        "/api/v1/storyboard/generate",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             script: singleSceneScript,
             avatar_data: avatarDNA ? { dna: avatarDNA } : null,
@@ -299,11 +299,10 @@ export function GenerateStep() {
       const aspectRatio = platformToAspectRatio[platform] || "9:16";
 
       // Call the correct backend endpoint with product images, avatar DNA, and reference images
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/storyboard/generate`,
+      const response = await backendFetch(
+        "/api/v1/storyboard/generate",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             script: backendScript,
             avatar_data: avatarDNA ? { dna: avatarDNA } : null,

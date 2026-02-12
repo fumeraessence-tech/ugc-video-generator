@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { useMassGeneratorStore } from "@/stores/mass-generator-store";
 import type { CreativeBrief } from "@/types/mass-generator";
+import { backendFetch } from "@/lib/backend-fetch";
 
 export function BriefStep() {
   const {
@@ -48,11 +49,10 @@ export function BriefStep() {
     setError(null);
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/mass-generator/expand-brief`,
+      const response = await backendFetch(
+        "/api/v1/mass-generator/expand-brief",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             user_prompt: userPrompt,
             product_dna: productDNA,

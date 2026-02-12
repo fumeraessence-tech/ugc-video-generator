@@ -7,8 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { usePerfumeStudioStore } from "@/stores/perfume-studio-store";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { backendFetch } from "@/lib/backend-fetch";
 
 export function StepGenerate() {
   const store = usePerfumeStudioStore();
@@ -21,7 +20,7 @@ export function StepGenerate() {
     if (pollingRef.current) clearInterval(pollingRef.current);
     pollingRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/v1/perfume/batch-job/${jobId}/status`);
+        const res = await backendFetch(`/api/v1/perfume/batch-job/${jobId}/status`);
         const data = await res.json();
         store.setBatchStatus(data.status);
         store.setBatchProgress(data.progress || 0);
@@ -86,9 +85,8 @@ export function StepGenerate() {
     store.setBatchResults([]);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/batch-job/start`, {
+      const res = await backendFetch("/api/v1/perfume/batch-job/start", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           products,
           reference_images: refs,
@@ -117,19 +115,19 @@ export function StepGenerate() {
 
   const pauseJob = async () => {
     if (!store.batchJobId) return;
-    await fetch(`${BACKEND_URL}/api/v1/perfume/batch-job/${store.batchJobId}/pause`, { method: "POST" });
+    await backendFetch(`/api/v1/perfume/batch-job/${store.batchJobId}/pause`, { method: "POST" });
     store.setBatchPaused(true);
   };
 
   const resumeJob = async () => {
     if (!store.batchJobId) return;
-    await fetch(`${BACKEND_URL}/api/v1/perfume/batch-job/${store.batchJobId}/resume`, { method: "POST" });
+    await backendFetch(`/api/v1/perfume/batch-job/${store.batchJobId}/resume`, { method: "POST" });
     store.setBatchPaused(false);
   };
 
   const cancelJob = async () => {
     if (!store.batchJobId) return;
-    await fetch(`${BACKEND_URL}/api/v1/perfume/batch-job/${store.batchJobId}/cancel`, { method: "POST" });
+    await backendFetch(`/api/v1/perfume/batch-job/${store.batchJobId}/cancel`, { method: "POST" });
   };
 
   const progressPercent = store.batchProgress || 0;

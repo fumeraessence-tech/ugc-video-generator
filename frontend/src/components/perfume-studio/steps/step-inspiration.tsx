@@ -8,8 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { usePerfumeStudioStore } from "@/stores/perfume-studio-store";
 import { DNADisplay } from "../shared/dna-display";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { backendFetch } from "@/lib/backend-fetch";
 
 export function StepInspiration() {
   const store = usePerfumeStudioStore();
@@ -30,7 +29,7 @@ export function StepInspiration() {
         const formData = new FormData();
         batch.forEach((f) => formData.append("files", f));
 
-        const res = await fetch(`${BACKEND_URL}/api/v1/perfume/upload-inspiration`, {
+        const res = await backendFetch("/api/v1/perfume/upload-inspiration", {
           method: "POST",
           body: formData,
         });
@@ -59,9 +58,8 @@ export function StepInspiration() {
     }
     store.setIsAnalyzingInspiration(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/analyze-inspiration`, {
+      const res = await backendFetch("/api/v1/perfume/analyze-inspiration", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           image_urls: store.inspirationImages,
           sample_size: 12,

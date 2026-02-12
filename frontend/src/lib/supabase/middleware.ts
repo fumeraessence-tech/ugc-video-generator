@@ -39,6 +39,7 @@ export async function updateSession(request: NextRequest) {
     "/generate",
     "/editor",
     "/perfume-studio",
+    "/product-studio",
     "/admin",
   ];
 

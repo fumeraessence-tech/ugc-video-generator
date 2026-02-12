@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,16 +12,17 @@ export const metadata = {
 };
 
 export default async function AudioPage() {
-  const session = await auth();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
   // Fetch all jobs with audio
   const jobs = await prisma.job.findMany({
     where: {
-      userId: session.user.id,
+      userId: user.id,
       audioUrl: { not: null },
     },
     orderBy: { createdAt: "desc" },

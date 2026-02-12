@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
   // Retrieve the user's Google AI API key
   const userKey = await prisma.userApiKey.findFirst({
     where: {
-      userId: session.user.id,
+      userId: user.id,
       service: "google_ai",
       status: "active",
     },

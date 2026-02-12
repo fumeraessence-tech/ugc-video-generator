@@ -32,6 +32,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useMassGeneratorStore } from "@/stores/mass-generator-store";
+import { backendFetch } from "@/lib/backend-fetch";
 import {
   PLATFORM_LABELS,
   VIDEO_STYLE_LABELS,
@@ -161,8 +162,8 @@ export function AvatarStep() {
       formData.append("file", file);
       formData.append("extract_dna", "true");
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/avatars/upload-image`,
+      const response = await backendFetch(
+        "/api/v1/avatars/upload-image",
         {
           method: "POST",
           body: formData,
@@ -234,8 +235,8 @@ export function AvatarStep() {
       formData.append("file", file);
       formData.append("extract_dna", "false");
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/avatars/upload-image`,
+      const response = await backendFetch(
+        "/api/v1/avatars/upload-image",
         {
           method: "POST",
           body: formData,

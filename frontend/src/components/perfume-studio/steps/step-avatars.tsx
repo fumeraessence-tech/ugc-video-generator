@@ -7,8 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { usePerfumeStudioStore } from "@/stores/perfume-studio-store";
 import { DNADisplay } from "../shared/dna-display";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { backendFetch } from "@/lib/backend-fetch";
 
 type Gender = "male" | "female" | "unisex";
 
@@ -34,7 +33,7 @@ export function StepAvatars() {
     try {
       const formData = new FormData();
       files.forEach((f) => formData.append("files", f));
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/upload-avatars`, {
+      const res = await backendFetch("/api/v1/perfume/upload-avatars", {
         method: "POST",
         body: formData,
       });
@@ -58,9 +57,8 @@ export function StepAvatars() {
     }
     store.setAvatarExtracting(gender, true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/extract-gender-avatar-dna`, {
+      const res = await backendFetch("/api/v1/perfume/extract-gender-avatar-dna", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_urls: slot.images, gender }),
       });
       const data = await res.json();

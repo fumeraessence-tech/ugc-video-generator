@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { useMassGeneratorStore } from "@/stores/mass-generator-store";
+import { backendFetch } from "@/lib/backend-fetch";
 import { useEditorStore } from "@/stores/editor-store";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
@@ -316,11 +317,10 @@ export function VideoStep() {
         setSceneVideos([...updatedScenes]);
 
         // Call API for this scene
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/video/generate-scene`,
+        const response = await backendFetch(
+          "/api/v1/video/generate-scene",
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               scene_number: parseInt(scene.scene_number),
               prompt: scene.prompt,

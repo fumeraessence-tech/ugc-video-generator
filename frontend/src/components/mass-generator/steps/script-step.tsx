@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useMassGeneratorStore } from "@/stores/mass-generator-store";
 import { SCENE_TYPE_LABELS, type Scene, type Script } from "@/types/mass-generator";
+import { backendFetch } from "@/lib/backend-fetch";
 import { cn } from "@/lib/utils";
 
 export function ScriptStep() {
@@ -60,11 +61,10 @@ export function ScriptStep() {
 
     try {
       // First, assemble the Production Bible
-      const bibleResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/mass-generator/assemble-bible`,
+      const bibleResponse = await backendFetch(
+        "/api/v1/mass-generator/assemble-bible",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             product_dna: productDNA,
             avatar_dna: avatarDNA,
@@ -86,11 +86,10 @@ export function ScriptStep() {
       setProductionBible(bibleData.bible);
 
       // Then, generate the script
-      const scriptResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"}/api/v1/mass-generator/generate-script`,
+      const scriptResponse = await backendFetch(
+        "/api/v1/mass-generator/generate-script",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             bible: bibleData.bible,
           }),

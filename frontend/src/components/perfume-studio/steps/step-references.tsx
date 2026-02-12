@@ -8,8 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { usePerfumeStudioStore } from "@/stores/perfume-studio-store";
 import { ImageUploadSlot } from "../shared/image-upload-slot";
 import { DNADisplay } from "../shared/dna-display";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { backendFetch } from "@/lib/backend-fetch";
 
 export function StepReferences() {
   const store = usePerfumeStudioStore();
@@ -21,7 +20,7 @@ export function StepReferences() {
     try {
       const formData = new FormData();
       files.forEach((f) => formData.append("files", f));
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/upload-references`, {
+      const res = await backendFetch("/api/v1/perfume/upload-references", {
         method: "POST",
         body: formData,
       });
@@ -46,9 +45,8 @@ export function StepReferences() {
     }
     store.setIsExtractingProductDNA(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/extract-product-dna`, {
+      const res = await backendFetch("/api/v1/perfume/extract-product-dna", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_urls: refs }),
       });
       const data = await res.json();

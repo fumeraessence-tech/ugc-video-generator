@@ -1,5 +1,3 @@
-import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
 import { VideoEditor } from "@/components/editor/video-editor";
 
 export const metadata = {
@@ -7,13 +5,7 @@ export const metadata = {
   description: "Edit and produce your UGC video",
 };
 
-export default async function EditorPage() {
-  const session = await auth();
-
-  if (!session?.user) {
-    redirect("/login");
-  }
-
+export default function EditorPage() {
   return (
     <div className="h-full">
       <VideoEditor />

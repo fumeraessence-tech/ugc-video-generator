@@ -7,8 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { usePerfumeStudioStore } from "@/stores/perfume-studio-store";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { backendFetch } from "@/lib/backend-fetch";
 
 export function StepCSVUpload() {
   const store = usePerfumeStudioStore();
@@ -20,7 +19,7 @@ export function StepCSVUpload() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${BACKEND_URL}/api/v1/perfume/upload-csv`, {
+      const res = await backendFetch("/api/v1/perfume/upload-csv", {
         method: "POST",
         body: formData,
       });
