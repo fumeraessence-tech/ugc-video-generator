@@ -41,9 +41,13 @@ export type Platform =
   | "tiktok"
   | "youtube_shorts"
   | "youtube_long"
-  | "facebook";
+  | "facebook"
+  | "meta_ads"
+  | "pinterest"
+  | "snapchat";
 
 export type VideoStyle =
+  // Classic UGC
   | "testimonial"
   | "tutorial"
   | "unboxing"
@@ -51,7 +55,28 @@ export type VideoStyle =
   | "comparison"
   | "transformation"
   | "day_in_life"
-  | "haul";
+  | "haul"
+  // Hook-driven / Meta Ads
+  | "problem_solution"
+  | "storytelling"
+  | "reaction"
+  | "pov"
+  | "myth_busting"
+  | "three_reasons"
+  | "stop_scrolling"
+  | "asmr"
+  | "duet_stitch"
+  | "street_interview"
+  | "challenge"
+  | "secret_hack"
+  | "routine"
+  | "expectation_reality"
+  | "storytime"
+  | "whisper_sell"
+  | "founder_story"
+  | "mini_vlog"
+  | "aesthetic"
+  | "us_vs_them";
 
 export type Tone =
   | "excited"
@@ -60,7 +85,12 @@ export type Tone =
   | "casual"
   | "luxurious"
   | "playful"
-  | "urgent";
+  | "urgent"
+  | "controversial"
+  | "vulnerable"
+  | "sarcastic"
+  | "asmr_whisper"
+  | "hype";
 
 export interface CreativeBrief {
   user_input: string;
@@ -253,9 +283,13 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   youtube_shorts: "YouTube Shorts",
   youtube_long: "YouTube",
   facebook: "Facebook",
+  meta_ads: "Meta Ads",
+  pinterest: "Pinterest",
+  snapchat: "Snapchat",
 };
 
 export const VIDEO_STYLE_LABELS: Record<VideoStyle, string> = {
+  // Classic UGC
   testimonial: "Testimonial / Review",
   tutorial: "Tutorial / How-To",
   unboxing: "Unboxing",
@@ -264,6 +298,27 @@ export const VIDEO_STYLE_LABELS: Record<VideoStyle, string> = {
   transformation: "Before & After",
   day_in_life: "Day in the Life",
   haul: "Product Haul",
+  // Hook-driven / Meta Ads
+  problem_solution: "Problem → Solution",
+  storytelling: "Storytelling",
+  reaction: "Reaction / First Impressions",
+  pov: "POV",
+  myth_busting: "Myth Busting",
+  three_reasons: "3 Reasons Why",
+  stop_scrolling: "Stop Scrolling",
+  asmr: "ASMR",
+  duet_stitch: "Duet / Stitch",
+  street_interview: "Street Interview",
+  challenge: "Challenge",
+  secret_hack: "Secret Hack",
+  routine: "Routine",
+  expectation_reality: "Expectation vs Reality",
+  storytime: "Storytime",
+  whisper_sell: "Whisper Sell",
+  founder_story: "Founder Story",
+  mini_vlog: "Mini Vlog",
+  aesthetic: "Aesthetic / Mood",
+  us_vs_them: "Us vs Them",
 };
 
 export const TONE_LABELS: Record<Tone, string> = {
@@ -274,6 +329,11 @@ export const TONE_LABELS: Record<Tone, string> = {
   luxurious: "Luxurious & Premium",
   playful: "Playful & Fun",
   urgent: "Urgent (FOMO)",
+  controversial: "Controversial / Bold",
+  vulnerable: "Vulnerable / Honest",
+  sarcastic: "Sarcastic / Witty",
+  asmr_whisper: "ASMR / Whisper",
+  hype: "Hype / High Energy",
 };
 
 export const SCENE_TYPE_LABELS: Record<Scene["scene_type"], string> = {

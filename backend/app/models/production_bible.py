@@ -20,31 +20,62 @@ class Platform(str, Enum):
     YOUTUBE_SHORTS = "youtube_shorts"
     YOUTUBE_LONG = "youtube_long"
     FACEBOOK = "facebook"
+    META_ADS = "meta_ads"
+    PINTEREST = "pinterest"
+    SNAPCHAT = "snapchat"
 
 
 class VideoStyle(str, Enum):
     """Style/format of the UGC video."""
 
-    TESTIMONIAL = "testimonial"  # Personal review/recommendation
-    TUTORIAL = "tutorial"  # How-to/educational
-    UNBOXING = "unboxing"  # First impressions/reveal
-    GRWM = "grwm"  # Get Ready With Me
-    COMPARISON = "comparison"  # vs. other products
-    TRANSFORMATION = "transformation"  # Before/after
-    DAY_IN_LIFE = "day_in_life"  # Lifestyle integration
-    HAUL = "haul"  # Multiple products showcase
+    # Classic UGC
+    TESTIMONIAL = "testimonial"
+    TUTORIAL = "tutorial"
+    UNBOXING = "unboxing"
+    GRWM = "grwm"
+    COMPARISON = "comparison"
+    TRANSFORMATION = "transformation"
+    DAY_IN_LIFE = "day_in_life"
+    HAUL = "haul"
+
+    # Hook-driven / Meta Ads
+    PROBLEM_SOLUTION = "problem_solution"
+    STORYTELLING = "storytelling"
+    REACTION = "reaction"
+    POV = "pov"
+    MYTH_BUSTING = "myth_busting"
+    THREE_REASONS = "three_reasons"
+    STOP_SCROLLING = "stop_scrolling"
+    ASMR = "asmr"
+    DUET_STITCH = "duet_stitch"
+    STREET_INTERVIEW = "street_interview"
+    CHALLENGE = "challenge"
+    SECRET_HACK = "secret_hack"
+    ROUTINE = "routine"
+    EXPECTATION_REALITY = "expectation_reality"
+    STORYTIME = "storytime"
+    WHISPER_SELL = "whisper_sell"
+    FOUNDER_STORY = "founder_story"
+    MINI_VLOG = "mini_vlog"
+    AESTHETIC = "aesthetic"
+    US_VS_THEM = "us_vs_them"
 
 
 class Tone(str, Enum):
     """Emotional tone of the content."""
 
-    EXCITED = "excited"  # High energy, enthusiastic
-    CALM = "calm"  # Relaxed, soothing
-    PROFESSIONAL = "professional"  # Polished, authoritative
-    CASUAL = "casual"  # Friendly, conversational
-    LUXURIOUS = "luxurious"  # Premium, sophisticated
-    PLAYFUL = "playful"  # Fun, lighthearted
-    URGENT = "urgent"  # FOMO-inducing, time-sensitive
+    EXCITED = "excited"
+    CALM = "calm"
+    PROFESSIONAL = "professional"
+    CASUAL = "casual"
+    LUXURIOUS = "luxurious"
+    PLAYFUL = "playful"
+    URGENT = "urgent"
+    CONTROVERSIAL = "controversial"
+    VULNERABLE = "vulnerable"
+    SARCASTIC = "sarcastic"
+    ASMR_WHISPER = "asmr_whisper"
+    HYPE = "hype"
 
 
 class CameraBody(str, Enum):

@@ -29,9 +29,9 @@ from app.models.production_bible import (
 logger = logging.getLogger(__name__)
 
 # Co-Pilot brief expansion prompt
-BRIEF_EXPANSION_PROMPT = """You are an expert UGC video strategist and creative director.
+BRIEF_EXPANSION_PROMPT = """You are a top-tier UGC video strategist and creative director who creates viral-worthy content for Meta Ads, TikTok, Instagram, and YouTube.
 
-Given a simple user prompt, expand it into a comprehensive creative brief for a UGC video.
+Given a simple user prompt, expand it into a HIGHLY SPECIFIC, scroll-stopping creative brief.
 
 USER'S SIMPLE PROMPT:
 {user_prompt}
@@ -41,28 +41,76 @@ PRODUCT BEING FEATURED:
 
 TARGET PLATFORM: {platform}
 VIDEO STYLE: {style}
+TONE: {tone}
 DURATION: {duration} seconds
 
-Generate a detailed creative brief with the following structure (return as JSON):
+═══════════════════════════════════════════════════════
+STYLE-SPECIFIC DIRECTION (match the style exactly):
+═══════════════════════════════════════════════════════
+
+- testimonial: Real person sharing genuine experience. Start mid-story, not "Hi guys". Include a specific moment of surprise or delight.
+- tutorial: "Let me show you the trick that changed everything." Step-by-step with a satisfying payoff.
+- unboxing: Build anticipation. Slow reveal. React authentically. Show packaging details.
+- grwm: Integrate product naturally into a getting-ready routine. Conversational, mirror-facing.
+- comparison: Side-by-side or before/after. Be brutally honest about the "other" option.
+- transformation: Dramatic before → after with a clear turning point moment.
+- day_in_life: Weave product into daily moments. Lifestyle-first, product-second.
+- haul: Multiple products, quick takes, genuine reactions, ranking or rating.
+- problem_solution: Open with a relatable frustration (ideally visual). Present product as the "wait, actually..." moment.
+- storytelling: Narrative arc with a beginning, middle, and twist/resolution. Hook with "I never thought I'd say this but..."
+- reaction: Genuine first-time reaction. Surprise, disbelief, or delight. Can be duet-style.
+- pov: "POV: you finally found the product that actually works." Immersive, first-person perspective.
+- myth_busting: "Everyone says [common belief] but here's the truth..." Challenge assumptions with proof.
+- three_reasons: "3 reasons why I'll never go back to [old way]." Numbered, punchy, each under 5 seconds.
+- stop_scrolling: "STOP. You need to see this." Pattern interrupt opening. Bold, direct, unapologetic.
+- asmr: Whisper-soft narration, satisfying product sounds, close-up textures. Sensory-driven.
+- duet_stitch: React to or build on another video concept. "She was right..." or "I tested this and..."
+- street_interview: "We asked 10 people to try [product]..." Candid reactions, man-on-the-street style.
+- challenge: Create a shareable challenge format around the product. Fun, participatory, brandable.
+- secret_hack: "The hack nobody talks about..." Underground knowledge vibe. Insider tip framing.
+- routine: Morning/night/weekly routine integration. Satisfying sequence, aesthetic shots.
+- expectation_reality: "What I expected vs what I got." Subvert expectations (positively). Humor-driven.
+- storytime: "Okay so this is crazy..." Gossip-energy storytelling with product woven in naturally.
+- whisper_sell: Soft-spoken, intimate, ASMR-adjacent. "You don't need this but..." reverse psychology.
+- founder_story: Origin story of the brand/product. Passion, struggle, breakthrough moment.
+- mini_vlog: Day-in-life vlog format with product appearing naturally. Authentic, unpolished energy.
+- aesthetic: Visual-first. Mood board come to life. Beautiful shots, minimal dialogue, vibes-driven.
+- us_vs_them: "Other brands do X. We do Y." Competitive positioning without being negative.
+
+═══════════════════════════════════════════════════════
+PLATFORM CULTURE (tailor the brief accordingly):
+═══════════════════════════════════════════════════════
+
+- tiktok: Raw, unpolished, trend-aware, sound-driven, quick cuts, green screen ok, duet-friendly
+- instagram_reels: Slightly more polished, aesthetic-conscious, save-worthy, carousel-complement
+- youtube_shorts: Educational lean, more substance per second, searchable hooks
+- youtube_long: Deeper narrative, more product detail, chapter-friendly structure
+- facebook: Broader audience, slightly more explanatory, caption-heavy viewing (sound-off friendly)
+- meta_ads: Performance-first. Hook in 1.5s. Thumb-stop visuals. Clear value prop in 5s. Strong CTA. Test multiple hooks.
+- pinterest: Aspirational, lifestyle-focused, save-worthy, vertical, longer shelf life
+- snapchat: Ephemeral energy, authentic, young audience, AR/filter-friendly, fast-paced
+
+Generate a detailed creative brief (return as JSON):
 
 {{
-  "hook_strategy": "Specific approach to grab attention in the first 3 seconds. Be creative and specific to this product.",
-  "pain_point": "The specific problem or frustration the target audience experiences that this product solves.",
+  "hook_strategy": "The EXACT opening moment — what the viewer sees and hears in the first 1-3 seconds. Be hyper-specific. Include the first line of dialogue if applicable. For meta_ads, provide 2-3 hook variations.",
+  "pain_point": "The specific, emotionally resonant problem. Not generic — describe the exact frustrating moment the audience recognizes instantly.",
   "key_selling_points": [
-    "First major benefit - be specific",
-    "Second major benefit - be specific",
-    "Third major benefit - be specific"
+    "Benefit 1 — framed as the audience would describe it to a friend, not marketing speak",
+    "Benefit 2 — specific, tangible, provable",
+    "Benefit 3 — emotional or lifestyle benefit"
   ],
-  "emotional_journey": "The emotional arc the viewer should experience: [starting emotion] → [middle emotion] → [ending emotion]",
-  "cta_approach": "Specific call-to-action strategy that fits the platform and product",
-  "unique_angle": "What makes THIS video different from typical product videos"
+  "emotional_journey": "Precise emotional arc: [opening emotion] → [turning point] → [closing emotion]. Example: 'Skepticism → Genuine surprise → Excited urgency'",
+  "cta_approach": "Platform-native CTA. Not 'click the link below' — something that fits the content style. For meta_ads: direct response CTA with urgency.",
+  "unique_angle": "The ONE thing that makes this video impossible to scroll past. The creative insight or unexpected framing that separates this from the 1000 other videos about similar products."
 }}
 
-IMPORTANT:
-- Be SPECIFIC to this product, not generic
-- Consider the platform's culture and audience
-- The hook must work in the first 3 seconds
-- Make the CTA natural, not salesy
+CRITICAL RULES:
+- Be BRUTALLY SPECIFIC — no generic briefs. Every field must feel like it was written for THIS exact product + style + platform combo.
+- The hook_strategy must describe an actual visual/audio moment, not a concept.
+- key_selling_points should sound like how a real person talks, not copywriting.
+- For meta_ads platform: optimize for thumb-stop rate and click-through. Performance > aesthetics.
+- Match the tone: {tone} — let this color every aspect of the brief.
 
 Return ONLY valid JSON, no markdown."""
 
@@ -223,6 +271,7 @@ class ProductionBibleService:
         platform: Platform,
         style: VideoStyle,
         duration: int,
+        tone: Tone = Tone.EXCITED,
     ) -> CreativeBrief:
         """Expand a simple user prompt into a detailed creative brief.
 
@@ -232,6 +281,7 @@ class ProductionBibleService:
             platform: Target platform
             style: Video style
             duration: Video duration in seconds
+            tone: Emotional tone
 
         Returns:
             Expanded CreativeBrief
@@ -243,6 +293,7 @@ class ProductionBibleService:
             product_description=product_dna.visual_description,
             platform=platform.value,
             style=style.value,
+            tone=tone.value,
             duration=duration,
         )
 
@@ -256,7 +307,10 @@ class ProductionBibleService:
                 ),
             )
 
-            response_text = response.text.strip()
+            response_text = (response.text or "").strip()
+            if not response_text:
+                logger.warning("Gemini returned empty response for brief expansion")
+                raise ValueError("Empty response from Gemini")
 
             # Clean markdown if present
             if response_text.startswith("```"):
@@ -325,6 +379,7 @@ class ProductionBibleService:
             platform=platform,
             style=style,
             duration=duration,
+            tone=tone,
         )
 
         # Step 2: Configure style
@@ -409,7 +464,10 @@ class ProductionBibleService:
                 ),
             )
 
-            response_text = response.text.strip()
+            response_text = (response.text or "").strip()
+            if not response_text:
+                logger.warning("Gemini returned empty response for script generation")
+                raise ValueError("Empty response from Gemini")
 
             # Clean markdown if present (shouldn't happen with response_mime_type but just in case)
             if response_text.startswith("```"):

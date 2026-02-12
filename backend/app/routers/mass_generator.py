@@ -77,6 +77,7 @@ class ExpandBriefRequest(BaseModel):
     product_dna: ProductDNA
     platform: str = "instagram_reels"
     style: str = "testimonial"
+    tone: str = "excited"
     duration: int = 30
 
 
@@ -149,6 +150,7 @@ async def expand_brief(request: ExpandBriefRequest, current_user: AuthUser = Dep
         # Parse enum values
         platform = Platform(request.platform)
         style = VideoStyle(request.style)
+        tone = Tone(request.tone)
 
         bible_service = ProductionBibleService(api_key=settings.GEMINI_API_KEY)
         brief = await bible_service.expand_brief(
@@ -157,6 +159,7 @@ async def expand_brief(request: ExpandBriefRequest, current_user: AuthUser = Dep
             platform=platform,
             style=style,
             duration=request.duration,
+            tone=tone,
         )
 
         return ExpandBriefResponse(

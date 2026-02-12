@@ -16,6 +16,7 @@ export function BriefStep() {
     productDNA,
     platform,
     style,
+    tone,
     duration,
     userPrompt,
     setUserPrompt,
@@ -58,6 +59,7 @@ export function BriefStep() {
             product_dna: productDNA,
             platform,
             style,
+            tone,
             duration,
           }),
         }
