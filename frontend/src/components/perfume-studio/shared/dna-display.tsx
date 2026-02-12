@@ -9,7 +9,7 @@ export function DNADisplay({
   color = "violet",
 }: {
   title: string;
-  data: Record<string, unknown> | null;
+  data: object | null;
   color?: "violet" | "blue" | "pink" | "amber" | "green";
 }) {
   const [expanded, setExpanded] = useState(false);

@@ -3,8 +3,7 @@
 -- Supabase PostgreSQL with Row-Level Security
 -- ============================================================================
 
--- Enable required extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- gen_random_uuid() is built into PostgreSQL 13+, no extension needed
 
 -- ─── Enums ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +63,7 @@ CREATE TRIGGER profiles_updated_at
 -- ─── Chats ──────────────────────────────────────────────────────────────────
 
 CREATE TABLE chats (
-  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   avatar_id  UUID,
   title      TEXT,
@@ -81,7 +80,7 @@ CREATE TRIGGER chats_updated_at
 -- ─── Messages ───────────────────────────────────────────────────────────────
 
 CREATE TABLE messages (
-  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   chat_id    UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   role       message_role NOT NULL,
   content    TEXT NOT NULL,
@@ -94,7 +93,7 @@ CREATE INDEX idx_messages_chat_id ON messages(chat_id);
 -- ─── Avatars ────────────────────────────────────────────────────────────────
 
 CREATE TABLE avatars (
-  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id           UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   name              TEXT NOT NULL,
   tag               TEXT,
@@ -124,7 +123,7 @@ CREATE TRIGGER avatars_updated_at
 -- ─── Jobs ───────────────────────────────────────────────────────────────────
 
 CREATE TABLE jobs (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   chat_id             UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   avatar_id           UUID REFERENCES avatars(id) ON DELETE SET NULL,
   user_id             UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -170,7 +169,7 @@ CREATE TRIGGER jobs_updated_at
 -- ─── User API Keys ─────────────────────────────────────────────────────────
 
 CREATE TABLE user_api_keys (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   label         TEXT NOT NULL,
   service       pool_type NOT NULL,
@@ -192,7 +191,7 @@ CREATE TRIGGER user_api_keys_updated_at
 -- ─── API Pool Keys (admin-only) ─────────────────────────────────────────────
 
 CREATE TABLE api_pool_keys (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   service       pool_type NOT NULL,
   encrypted_key TEXT NOT NULL,
   iv            TEXT NOT NULL,
