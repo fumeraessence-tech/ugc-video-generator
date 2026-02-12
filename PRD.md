@@ -1,9 +1,43 @@
-# UGC Video Generator - Product Requirements Document (PRD)
+# UGC Video Generator (UGCGen) — Product Requirements Document
 
 **Project Name:** UGC Video Generator (UGCGen)
-**Version:** 1.0
-**Last Updated:** 2026-02-02
+**Version:** 2.0
+**Last Updated:** 2026-02-08
 **Author:** Narayan Vaish
+**Status:** Development Complete — Ready for API Integration Testing
+
+---
+
+## Table of Contents
+
+1. [Executive Summary](#1-executive-summary)
+2. [Problem Statement](#2-problem-statement)
+3. [System Architecture Overview](#3-system-architecture-overview)
+4. [Tech Stack](#4-tech-stack)
+5. [Backend Architecture](#5-backend-architecture)
+6. [Frontend Architecture](#6-frontend-architecture)
+7. [AI Pipeline — 10-Step Orchestrator](#7-ai-pipeline--10-step-orchestrator)
+8. [Core Modules — Backend Services](#8-core-modules--backend-services)
+9. [Core Modules — AI Agents](#9-core-modules--ai-agents)
+10. [Character DNA System](#10-character-dna-system)
+11. [Production Bible System](#11-production-bible-system)
+12. [Chat Experience — Smart Copilot](#12-chat-experience--smart-copilot)
+13. [Mass Generator Wizard](#13-mass-generator-wizard)
+14. [Video Editor — Post-Production](#14-video-editor--post-production)
+15. [Library & Job Management](#15-library--job-management)
+16. [Database Schema](#16-database-schema)
+17. [API Reference — Backend](#17-api-reference--backend)
+18. [API Reference — Frontend Routes](#18-api-reference--frontend-routes)
+19. [Authentication & Security](#19-authentication--security)
+20. [State Management](#20-state-management)
+21. [Real-Time Communication](#21-real-time-communication)
+22. [Character Consistency Enforcement](#22-character-consistency-enforcement)
+23. [Ultra-Realism Requirements](#23-ultra-realism-requirements)
+24. [Configuration & Environment](#24-configuration--environment)
+25. [Infrastructure](#25-infrastructure)
+26. [Deployment Guide](#26-deployment-guide)
+27. [Risk Assessment](#27-risk-assessment)
+28. [Roadmap](#28-roadmap)
 
 ---
 
@@ -11,1181 +45,1760 @@
 
 UGCGen is an AI-powered platform that generates ultra-realistic User-Generated Content (UGC) style videos end-to-end. The system orchestrates multiple AI agents — script writing, storyboard generation, character DNA management, video generation, voiceover synthesis, and post-production — into a seamless pipeline that produces professional-quality UGC videos indistinguishable from real human-recorded content.
 
-**Core Differentiators:**
-- Multi-model architecture with fallback API pools
-- Character DNA system ensuring identity consistency across all scenes
-- Character DNA Extractor for user-uploaded avatar images
-- Automated scene continuity pipeline bridging Flow's 8-second clip limitation
-- Ultra-realistic output with deliberate skin imperfections, natural lighting artifacts, and anti-AI-detection measures
-- Audio-video sync engine with voiceover alignment
+**What's Built:**
+- Full-stack application with FastAPI backend and Next.js 16 frontend
+- 10-step video generation pipeline with resumability
+- AI copilot chat with Server-Sent Events streaming
+- Character DNA extraction and consistency enforcement
+- Production Bible assembly (Product DNA + Avatar DNA + Style + Camera + Lighting + Realism)
+- Mass Generator 6-step wizard
+- Timeline-based video editor with multi-track support
+- Avatar management with reference angle validation
+- Library with job history, search, filtering, and pagination
+- Real-time progress tracking via Redis pub/sub + webhooks
+
+**Core AI Models (Google Ecosystem):**
+
+| Function | Primary Model | Model ID | Fallback |
+|----------|--------------|----------|----------|
+| Script Generation | Gemini 2.5 Pro | `gemini-2.5-pro-preview-06-05` | Gemini 2.5 Flash |
+| Scene Prompts | Gemini 2.5 Pro | `gemini-2.5-pro-preview-06-05` | Gemini 2.5 Flash |
+| Storyboard Images | Imagen 4 Ultra | `imagen-4.0-ultra-generate-exp-05-20` | Imagen 4 Generate |
+| Video Generation | Veo 3.1 | `veo-3.1-generate-preview` | Veo 3.1 Fast → Veo 2 |
+| Voiceover TTS | Gemini TTS | `gemini-2.5-flash-preview-tts` | Google Cloud TTS |
+| DNA Extraction | Gemini 2.5 Pro Vision | `gemini-2.5-pro-preview-06-05` | Gemini 2.5 Flash |
+| Consistency Scoring | Gemini 2.5 Flash | `gemini-2.5-flash` | — |
+| Intent Detection | Gemini 2.5 Flash | `gemini-2.5-flash` | Falls back to CHAT intent |
 
 ---
 
 ## 2. Problem Statement
 
 Creating consistent, high-quality UGC videos with AI is currently fragmented and manual:
-- Character appearance drifts across clips (different face shapes, skin tones, accessories)
-- 8-second video generation limits require manual stitching with visible seams
-- No unified pipeline connecting script → storyboard → video → audio → final output
-- Color, lighting, and camera continuity breaks between AI-generated scenes
-- AI-generated content exhibits tells (plastic skin, perfect symmetry, uniform teeth) that make it look artificial
+
+1. **Character drift** — Character appearance changes across clips (face shapes, skin tones, accessories)
+2. **8-second clip limit** — Even with Veo 3.1 extension (up to 148s), managing continuity across scenes requires orchestration
+3. **No unified pipeline** — No system connecting script → storyboard → video → audio → final output
+4. **Color/lighting breaks** — Continuity breaks between AI-generated scenes
+5. **AI tells** — Plastic skin, perfect symmetry, uniform teeth make content look artificial
+6. **Product inconsistency** — Products appear differently across scenes, wrong colors/labels/proportions
+
+UGCGen solves all of these with a multi-layer consistency system, production bible approach, and 10-step orchestrated pipeline.
 
 ---
 
 ## 3. System Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      UGCGen Platform                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────┐   ┌──────────────┐   ┌───────────────────┐   │
-│  │ Script    │──▶│ Scene Prompt │──▶│ Storyboard Gen    │   │
-│  │ Agent     │   │ Agent        │   │ (Imagen 3 / Nano  │   │
-│  │ (Gemini)  │   │ (Gemini)     │   │  Banana)          │   │
-│  └──────────┘   └──────────────┘   └─────────┬─────────┘   │
-│                                               │              │
-│  ┌──────────────────────────────────────────┐ │              │
-│  │         Character DNA Registry           │◀┘              │
-│  │  ┌─────────┐ ┌─────────┐ ┌──────────┐  │               │
-│  │  │Avatar 1 │ │Avatar 2 │ │Avatar N  │  │               │
-│  │  │7-panel  │ │7-panel  │ │7-panel   │  │               │
-│  │  │ref sheet│ │ref sheet│ │ref sheet │  │               │
-│  │  │+ DNA    │ │+ DNA    │ │+ DNA     │  │               │
-│  │  └─────────┘ └─────────┘ └──────────┘  │               │
-│  └──────────────────────┬───────────────────┘               │
-│                         │                                    │
-│  ┌──────────────────────▼───────────────────┐               │
-│  │         Video Generation Engine           │               │
-│  │  ┌──────┐  ┌──────┐  ┌──────┐           │               │
-│  │  │Flow  │  │Veo 3 │  │Veo 2 │  ...      │               │
-│  │  │(pri) │  │(sec) │  │(fall)│           │               │
-│  │  └──────┘  └──────┘  └──────┘           │               │
-│  │  + Ingredient injection                   │               │
-│  │  + Last-frame chaining                    │               │
-│  │  + Multi-candidate selection              │               │
-│  └──────────────────────┬───────────────────┘               │
-│                         │                                    │
-│  ┌──────────────────────▼───────────────────┐               │
-│  │          Audio Generation Engine          │               │
-│  │  Gemini TTS / Google Cloud TTS            │               │
-│  │  + Voiceover per scene                    │               │
-│  │  + Background music mixing                │               │
-│  └──────────────────────┬───────────────────┘               │
-│                         │                                    │
-│  ┌──────────────────────▼───────────────────┐               │
-│  │       Post-Production Pipeline            │               │
-│  │  FFmpeg + MoviePy                         │               │
-│  │  + Clip stitching with xfade transitions  │               │
-│  │  + Color grading (LUT + histogram match)  │               │
-│  │  + Audio-video sync & J/L cuts            │               │
-│  │  + Text overlays & captions               │               │
-│  │  + Film grain & realism filters           │               │
-│  │  + Lip sync (Wav2Lip/SadTalker fallback)  │               │
-│  └──────────────────────┬───────────────────┘               │
-│                         │                                    │
-│                    [Final Video Output]                       │
-│              1080p / 4K, 9:16 or 16:9                        │
-│         Multiple video outcome selections                    │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                         UGCGen Platform                                │
+├──────────────────────────┬────────────────────────────────────────────┤
+│                          │                                             │
+│   FRONTEND (Next.js 16)  │    BACKEND (FastAPI)                       │
+│   ┌──────────────────┐   │    ┌──────────────────────────────────┐   │
+│   │ Chat Copilot      │   │    │ AI Agents                        │   │
+│   │ (SSE Streaming)   │◄──┼───►│ • CoPilot Agent                  │   │
+│   ├──────────────────┤   │    │ • Script Agent                   │   │
+│   │ Mass Generator    │   │    │ • Scene Prompt Agent             │   │
+│   │ (6-Step Wizard)   │◄──┼───►│ • Storyboard Agent               │   │
+│   ├──────────────────┤   │    │ • Video Generator Agent          │   │
+│   │ Video Editor      │   │    │ • DNA Extractor Agent            │   │
+│   │ (Timeline-based)  │   │    │ • Prompt Engineering Agent       │   │
+│   ├──────────────────┤   │    │ • Requirements Agent             │   │
+│   │ Avatar Manager    │   │    └───────────────┬──────────────────┘   │
+│   ├──────────────────┤   │    ┌───────────────▼──────────────────┐   │
+│   │ Library           │   │    │ Services                         │   │
+│   │ (Jobs + History)  │   │    │ • ScriptService                  │   │
+│   └──────────────────┘   │    │ • ImageService (Imagen 4)        │   │
+│                          │    │ • VideoService (Veo 3.1)         │   │
+│   Zustand Stores:        │    │ • AudioService (Gemini TTS)      │   │
+│   • chat-store           │    │ • FFmpegService                  │   │
+│   • editor-store         │    │ • ConsistencyService             │   │
+│   • mass-generator-store │    │ • StorageService (GCS/Local)     │   │
+│                          │    │ • AvatarVisionService            │   │
+│   Prisma + PostgreSQL    │    │ • ProductVisionService           │   │
+│                          │    │ • ProductionBibleService         │   │
+│                          │    │ • ReferenceValidationService     │   │
+│                          │    └───────────────┬──────────────────┘   │
+│                          │    ┌───────────────▼──────────────────┐   │
+│                          │    │ Video Pipeline (10 Steps)        │   │
+│                          │    │ script → prompts → storyboard → │   │
+│                          │    │ review → video → extend →       │   │
+│                          │    │ audio → post → QC → complete    │   │
+│                          │    └──────────────────────────────────┘   │
+├──────────────────────────┼────────────────────────────────────────────┤
+│        PostgreSQL        │         Redis (Pub/Sub + Celery)          │
+└──────────────────────────┴────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Core Modules
+## 4. Tech Stack
 
-### 4.1 Script Generation Agent
+### 4.1 Backend
 
-**Model:** Gemini 2.5 Pro (primary) / Gemini 2.5 Flash (fallback)
+| Component | Technology |
+|-----------|-----------|
+| Language | Python 3.12 |
+| Framework | FastAPI |
+| Task Queue | Celery + Redis |
+| Pub/Sub | Redis (real-time progress) |
+| Storage | Google Cloud Storage (GCS) + Local fallback |
+| Database | PostgreSQL (via Prisma on frontend) |
+| Video Processing | FFmpeg + MoviePy |
+| AI SDK | `google-genai` (Google Generative AI SDK) |
+| HTTP Client | httpx (async) |
+| Config | pydantic-settings with `.env` |
 
-**Responsibilities:**
-- Generate video scripts based on user input (brand brief, product info, target audience, tone)
-- Break scripts into scene-by-scene segments, each ~8 seconds of spoken content
-- Generate per-scene metadata: dialogue/narration text, emotional tone, camera direction, pacing notes
-- Generate audio narration prompt for TTS voiceover styling
+### 4.2 Frontend
 
-**Input:**
+| Component | Technology |
+|-----------|-----------|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript (strict mode) |
+| UI Library | Tailwind CSS + Shadcn/ui |
+| State | Zustand (3 stores with persist middleware) |
+| Auth | NextAuth.js v5 (Google OAuth + Credentials) |
+| Database ORM | Prisma |
+| Database | PostgreSQL |
+| Streaming | Server-Sent Events (SSE) |
+| Validation | Zod |
+
+### 4.3 Infrastructure
+
+| Component | Technology |
+|-----------|-----------|
+| Containers | Docker Compose |
+| Database | PostgreSQL 16 (port 5432) |
+| Cache/Queue | Redis 7 (port 6379) |
+| Backend | FastAPI on port 8000 |
+| Frontend | Next.js on port 3000 |
+
+---
+
+## 5. Backend Architecture
+
+### 5.1 Directory Structure
+
+```
+backend/
+├── app/
+│   ├── agents/               # AI Agent implementations
+│   │   ├── copilot_agent.py          # UGC directing copilot (Gemini 2.5 Pro)
+│   │   ├── script_agent.py           # Script generation agent
+│   │   ├── scene_prompt_agent.py     # Scene-to-prompt conversion (16.6KB)
+│   │   ├── storyboard_agent.py       # Storyboard generation (11.5KB)
+│   │   ├── video_generator_agent.py  # Video generation with Veo 3.1 (9KB)
+│   │   ├── dna_extractor_agent.py    # Character DNA extraction
+│   │   ├── prompt_engineering_agent.py # Prompt best practices (15.1KB)
+│   │   └── requirements_agent.py     # Generation requirements checker (9.7KB)
+│   ├── config/
+│   │   └── settings.py       # pydantic-settings configuration
+│   ├── models/
+│   │   └── schemas.py        # Pydantic models (enums, camera, lighting, scenes)
+│   ├── pipelines/
+│   │   └── video_pipeline.py # 10-step pipeline orchestrator
+│   ├── routers/              # FastAPI route handlers
+│   │   ├── health.py         # GET /health
+│   │   ├── generation.py     # POST /api/v1/generation/start
+│   │   ├── jobs.py           # GET/PATCH /api/v1/jobs/{id}
+│   │   ├── avatars.py        # CRUD /api/v1/avatars (10.2KB)
+│   │   ├── copilot.py        # POST /api/v1/copilot/generate-script
+│   │   ├── storyboard.py     # POST /api/v1/storyboard/generate (5.5KB)
+│   │   ├── video.py          # POST /api/v1/video/generate (7.8KB)
+│   │   ├── editor.py         # POST /api/v1/editor/compile (9.9KB)
+│   │   └── mass_generator.py # POST /api/v1/mass-generator/* (8.4KB)
+│   ├── services/             # Business logic services
+│   │   ├── script_service.py
+│   │   ├── image_service.py           # Imagen 4 Ultra integration
+│   │   ├── video_service.py           # Veo 3.1 integration
+│   │   ├── audio_service.py           # Gemini TTS integration
+│   │   ├── ffmpeg_service.py          # Video post-processing
+│   │   ├── consistency_service.py     # Multi-layer consistency scoring
+│   │   ├── storage_service.py         # GCS + local storage
+│   │   ├── avatar_vision_service.py   # Avatar image analysis
+│   │   ├── product_vision_service.py  # Product DNA extraction
+│   │   ├── production_bible_service.py # Master prompt assembly
+│   │   └── reference_validation_service.py # Angle validation
+│   ├── utils/
+│   │   └── redis_client.py   # Redis pub/sub helpers
+│   └── main.py               # FastAPI app entry point
+├── .env
+└── pyproject.toml / requirements.txt
+```
+
+### 5.2 Service Initialization Pattern
+
+All services follow a consistent pattern:
+
+```python
+class ServiceName:
+    def __init__(self, api_key: str | None = None) -> None:
+        self._api_key = api_key or settings.GEMINI_API_KEY
+        self._client: genai.Client | None = None
+        if self._api_key:
+            self._client = genai.Client(api_key=self._api_key)
+```
+
+This allows per-user API keys (from the frontend) to override the system-level key.
+
+---
+
+## 6. Frontend Architecture
+
+### 6.1 Directory Structure
+
+```
+frontend/
+├── prisma/
+│   └── schema.prisma         # Database schema (10 models)
+├── src/
+│   ├── app/
+│   │   ├── (auth)/           # Login + Register pages
+│   │   ├── (dashboard)/      # Main app layout with sidebar
+│   │   │   ├── chat/         # Chat hub + /chat/[chatId]
+│   │   │   ├── avatars/      # Avatar management
+│   │   │   ├── library/      # Job history (scripts, audio, storyboards)
+│   │   │   ├── generate/     # Mass Generator wizard
+│   │   │   ├── editor/       # Timeline-based video editor
+│   │   │   ├── settings/     # Profile + API keys
+│   │   │   ├── explore/      # Community discovery
+│   │   │   └── categories/   # Content categories
+│   │   └── api/              # 32+ API route handlers
+│   │       ├── auth/         # NextAuth + registration
+│   │       ├── chat/         # Chat CRUD + messages (SSE)
+│   │       ├── avatars/      # Avatar CRUD + DNA extraction
+│   │       ├── upload/       # Generic file upload
+│   │       ├── products/     # Product image upload
+│   │       ├── copilot/      # Script generation proxy
+│   │       ├── storyboard/   # Storyboard generation proxy
+│   │       ├── video/        # Video generation proxy
+│   │       ├── jobs/         # Job progress + decisions
+│   │       ├── library/      # Job listing + management
+│   │       ├── settings/     # Profile + API keys
+│   │       └── editor/       # Upload music, voiceover, compile
+│   ├── components/
+│   │   ├── chat/             # Chat UI (container, input, messages, toolbar)
+│   │   ├── avatars/          # Avatar cards, selector, detail dialog
+│   │   ├── editor/           # Video editor (timeline, preview, panels)
+│   │   ├── generation/       # Product upload, background selector
+│   │   ├── mass-generator/   # 6-step wizard components
+│   │   ├── library/          # Scene breakdown, job cards
+│   │   ├── layout/           # Sidebar, topbar, mobile nav
+│   │   └── ui/               # Shadcn base components
+│   ├── stores/
+│   │   ├── chat-store.ts     # Chat + generation settings state
+│   │   ├── editor-store.ts   # Video editor state
+│   │   └── mass-generator-store.ts # Wizard state
+│   ├── types/
+│   │   ├── generation.ts     # Generation mode, model, camera, lighting types
+│   │   ├── editor.ts         # Timeline, clip, audio, caption types
+│   │   └── mass-generator.ts # ProductDNA, ProductionBible, Scene types
+│   ├── hooks/
+│   │   ├── use-editor-init.ts # Editor initialization from wizard
+│   │   ├── use-sidebar.ts     # Sidebar toggle + chat history
+│   │   └── use-toast.ts       # Toast notifications
+│   ├── lib/
+│   │   ├── auth.ts           # NextAuth configuration
+│   │   ├── prisma.ts         # Prisma client singleton
+│   │   ├── utils.ts          # cn() utility
+│   │   ├── crypto.ts         # API key encryption/decryption
+│   │   └── wpm-calculator.ts # Words-per-minute validation
+│   └── middleware.ts         # Route protection
+├── public/
+│   └── uploads/              # Local file storage
+├── next.config.ts
+├── package.json
+└── tailwind.config.ts
+```
+
+### 6.2 Pages
+
+| Route | Purpose | Key Components |
+|-------|---------|---------------|
+| `/login` | Authentication | Credentials + Google OAuth |
+| `/register` | User registration | Form with validation |
+| `/chat` | Chat hub | Quick action cards, setup guide |
+| `/chat/[chatId]` | Active conversation | MessageList, ChatInput, streaming |
+| `/generate` | Mass Generator | 6-step wizard |
+| `/editor` | Video editor | Timeline, preview, properties |
+| `/avatars` | Avatar management | System + user avatars, DNA editing |
+| `/library` | Job history | Grid view, status badges, search |
+| `/library/scripts` | Script library | Script-focused view |
+| `/library/audio` | Audio library | Audio-focused view |
+| `/library/storyboards` | Storyboard library | Storyboard-focused view |
+| `/settings` | User settings | Profile, API keys, preferences |
+| `/explore` | Community | Discovery features |
+| `/categories` | Content categories | Category browsing |
+
+---
+
+## 7. AI Pipeline — 10-Step Orchestrator
+
+**File:** `backend/app/pipelines/video_pipeline.py`
+
+The pipeline orchestrates the entire video generation process with progress tracking, resumability, and consistency enforcement.
+
+### 7.1 Pipeline Steps
+
+| Step | Progress | Action | Service/Agent |
+|------|----------|--------|--------------|
+| 1. `script_generation` | 10% | Generate video script from user brief | CoPilotAgent → ScriptService |
+| 2. `scene_prompts` | 20% | Convert script scenes to detailed prompts | ScenePromptAgent |
+| 3. `storyboard` | 35% | Generate reference images per scene | ImageService (Imagen 4) |
+| 4. `storyboard_review` | 40% | Pause for user approval/regeneration | Webhook → Frontend |
+| 5. `video_generation` | 60% | Generate video clips per scene | VideoService (Veo 3.1) |
+| 6. `video_extension` | 75% | Extend clips for continuity | VideoService (Veo 3.1 extend) |
+| 7. `audio_generation` | 85% | Generate voiceover audio | AudioService (Gemini TTS) |
+| 8. `post_production` | 92% | FFmpeg stitching + transitions + audio | FFmpegService |
+| 9. `quality_check` | 97% | Validate consistency + quality | ConsistencyService |
+| 10. `complete` | 100% | Final delivery | StorageService |
+
+### 7.2 Pipeline Configuration
+
+```python
+CONSISTENCY_THRESHOLD = 0.75     # Minimum storyboard face similarity
+MAX_REGEN_ATTEMPTS = 3           # Auto-regeneration retry limit
+MAX_STEP_RETRIES = 2             # Transient failure retry limit
+TRANSIENT_STATUS_CODES = {429, 503, 502, 500}
+```
+
+### 7.3 Resumability
+
+Each step stores artifacts in the Job model's `stepArtifacts` field:
+
 ```json
 {
-  "brand_brief": "Perfume brand targeting Gen-Z women",
-  "product_details": "100ml glass bottle, rose gold cap, notes: blackcurrant, rose, vanilla",
-  "tone": "authentic, relatable, aspirational",
-  "video_style": "UGC testimonial / unboxing",
-  "duration_target": "30-60 seconds",
-  "platform": "Instagram Reels / TikTok",
-  "avatar_id": "ARIA_28_F_INDIAN_PERFUME_MODEL",
-  "language": "English"
+  "script_generation": { "script_url": "..." },
+  "storyboard": { "scene_urls": ["..."] },
+  "video_generation": { "clip_urls": ["..."] }
 }
 ```
 
-**Output:**
+If the pipeline fails, it resumes from `lastCompletedStep` on restart. The `version` and `parentJobId` fields enable iterative refinement.
+
+### 7.4 Progress Tracking
+
+Progress is reported via two channels:
+1. **Redis pub/sub** — Real-time to all subscribers on `job:{jobId}:progress`
+2. **Webhook callback** — POST to `frontend/api/jobs/[jobId]/progress` which creates assistant messages for milestones
+
+---
+
+## 8. Core Modules — Backend Services
+
+### 8.1 ScriptService
+
+**File:** `backend/app/services/script_service.py`
+
+Generates structured video scripts using Gemini 2.5 Pro with JSON output schema.
+
+**Key Methods:**
+- `generate_script(request: GenerationRequest) -> Script` — Takes brand brief, product info, avatar DNA, platform constraints; returns structured scene breakdown
+- Enforces WPM constraints (default 150 WPM = 20 words max per 8-second scene)
+
+**Output Format:**
 ```json
 {
-  "title": "Perfume UGC - Blackcurrant Rose",
-  "total_duration_estimate": 40,
+  "title": "Product Testimonial",
+  "total_duration": 40,
   "scenes": [
     {
       "scene_number": 1,
+      "scene_type": "hook",
       "duration_seconds": 8,
-      "dialogue": "Okay so I finally got my hands on this and I need to talk about it.",
-      "narration_prompt": "Warm, excited, slightly breathless, authentic unboxing energy",
-      "emotional_tone": "excitement, anticipation",
-      "camera_direction": "Medium shot, slight angle, natural handheld sway",
-      "scene_type": "product_reveal",
-      "props": ["perfume_bottle", "shipping_box"],
-      "setting": "bedroom vanity, natural daylight"
+      "dialogue": "Okay so I finally got my hands on this...",
+      "action": "Character holds product, turns to camera",
+      "expression": "Excited, genuine surprise",
+      "camera": { "shot_type": "medium", "angle": "eye_level", "movement": "handheld" },
+      "lighting": { "type": "natural", "direction": "front_45" },
+      "product_visibility": "primary",
+      "product_action": "held in hand, label facing camera"
     }
   ],
-  "audio_style_prompt": "Natural conversational female voice, warm and relatable, slight Indian-English accent, no dramatic delivery"
+  "audio_direction": "Warm conversational, authentic UGC energy"
 }
 ```
 
-**Structured Output:** Uses Gemini's `responseMimeType: "application/json"` with `responseSchema` to enforce the scene breakdown format consistently.
+### 8.2 ImageService
+
+**File:** `backend/app/services/image_service.py`
+
+Generates storyboard images using Google Imagen 4.
+
+**Key Methods:**
+- `generate_image(prompt: str, negative_prompt: str, reference_images: list) -> bytes` — Single image generation
+- `generate_storyboard(scenes: list, avatar_dna: AvatarDNA, reference_images: list) -> list` — Batch scene generation
+- Supports up to 14 reference images simultaneously (Imagen 4 Ultra)
+- Returns 2-4 variants per scene for selection
+
+**Models:**
+- **Primary:** `imagen-4.0-ultra-generate-exp-05-20` (4K, thinking mode)
+- **Fast:** `imagen-4.0-generate-exp-05-20` (draft iterations)
+
+### 8.3 VideoService
+
+**File:** `backend/app/services/video_service.py`
+
+Generates video clips using Google Veo 3.1 via the Gemini API.
+
+**Key Methods:**
+- `generate_video(prompt, config, reference_images) -> str` — Single video generation
+- `extend_video(video_file, prompt) -> str` — Extend existing video by 7s
+- `generate_with_first_frame(prompt, first_frame_image) -> str` — Image-to-video
+- `generate_with_frames(prompt, first_frame, last_frame) -> str` — First+last frame interpolation
+
+**Capabilities:**
+
+| Feature | Details |
+|---------|---------|
+| Ingredients to Video | Up to 3 reference images for consistency |
+| Video Extension | Up to 148 seconds total (20 extensions) |
+| Image-to-Video | First frame control |
+| First + Last Frame | Scene transition interpolation |
+| Native Audio | Dialogue, SFX, ambient generated in video |
+| Resolution | 720p (default), 1080p, 4K |
+| Aspect Ratio | 16:9, 9:16, 1:1 |
+| Duration | 4s, 6s, 8s per generation |
+
+**Reference Image Strategy (3 slots):**
+
+| Slot | Image | Purpose |
+|------|-------|---------|
+| 1 | Character front portrait | Face identity anchor |
+| 2 | Angle matching scene camera | Angle-appropriate reference |
+| 3 | Approved storyboard frame | Scene composition anchor |
+
+### 8.4 AudioService
+
+**File:** `backend/app/services/audio_service.py`
+
+Generates voiceover audio using Gemini TTS.
+
+**Key Methods:**
+- `generate_voiceover(text, voice_config) -> bytes` — Single TTS generation
+- `generate_scene_audio(scenes, voice_config) -> list` — Per-scene audio
+- `generate_continuous_voiceover(script, voice_config) -> bytes` — Full continuous VO
+
+**Models:**
+- **Primary:** `gemini-2.5-flash-preview-tts` (Gemini TTS)
+- **Fallback:** Google Cloud TTS Neural2/WaveNet
+
+**Voice Profiles:** Kore, Sage, Mica, Lyra + custom via voice config (pitch, rate, style prompt)
+
+### 8.5 FFmpegService
+
+**File:** `backend/app/services/ffmpeg_service.py`
+
+Handles all video post-production operations.
+
+**Key Methods:**
+- `stitch_clips(clips, transitions) -> str` — Combine scene clips with transitions
+- `add_audio_track(video, audio, volume) -> str` — Mix audio onto video
+- `apply_color_grade(video, lut_path) -> str` — Color grading via LUT
+- `extract_last_frame(video) -> str` — Frame extraction for chaining
+- `apply_realism_filters(video, config) -> str` — Grain, vignette, shake
+
+**Transition Types:**
+
+| Transition | Duration | Use Case |
+|-----------|----------|----------|
+| Hard cut | 0s | Same setting, different angle |
+| Dissolve | 0.3-1.0s | Emotional shift, scene change |
+| Crossfade | 0.8s | Different setting, same character |
+| Dip to black | 0.5s | Topic change |
+| Whip/zoom | 0.2s | Energy increase |
+
+### 8.6 ConsistencyService
+
+**File:** `backend/app/services/consistency_service.py`
+
+Multi-layer character consistency validation using Gemini Vision.
+
+**Key Methods:**
+- `score_storyboard(frame, reference_images) -> float` — Storyboard-level scoring
+- `score_video_frames(video, reference_images, sample_rate) -> list[float]` — Frame-by-frame scoring
+- `cross_scene_consistency(scenes) -> float` — Standard deviation across scenes
+
+**Thresholds:**
+
+| Check | Threshold | Action on Failure |
+|-------|-----------|-------------------|
+| Storyboard similarity | > 0.75 | Auto-regenerate (up to 3x) |
+| Video frame similarity | > 0.65 | Flag for regeneration |
+| Cross-scene std dev | < 0.10 | Regenerate outlier scenes |
+
+### 8.7 StorageService
+
+**File:** `backend/app/services/storage_service.py`
+
+Dual-mode storage — Google Cloud Storage for production, local filesystem for development.
+
+**Key Methods:**
+- `upload(file_bytes, path) -> str` — Upload file, returns public URL
+- `download(path) -> bytes` — Download file
+- `list_files(prefix) -> list[str]` — List files by prefix
+
+**Storage Paths:**
+- Local: `frontend/public/uploads/{type}/{userId}/{filename}`
+- GCS: `gs://ugcgen-assets/{type}/{userId}/{filename}`
+
+### 8.8 ProductVisionService
+
+**File:** `backend/app/services/product_vision_service.py`
+
+Extracts Product DNA from uploaded product images using Gemini Vision.
+
+**Output (ProductDNA):**
+```json
+{
+  "product_type": "skincare_serum",
+  "product_name": "Vitamin C Glow Serum",
+  "colors": { "primary": "#FFD700", "secondary": "#FFFFFF", "packaging": "#000000" },
+  "shape": "cylindrical_dropper_bottle",
+  "materials": ["glass", "metal_cap"],
+  "texture": "smooth, translucent liquid",
+  "branding_text": ["Vitamin C", "30ml", "Made in Korea"],
+  "logo_description": "Minimalist gold leaf icon on black label",
+  "distinctive_features": ["gold foil accent", "frosted glass body"],
+  "prohibited_variations": ["Never change label text", "Never alter bottle shape"]
+}
+```
+
+### 8.9 ProductionBibleService
+
+**File:** `backend/app/services/production_bible_service.py`
+
+Assembles the master Production Bible from all DNA components.
+
+**Bible Components:**
+1. **Product DNA** — From ProductVisionService
+2. **Avatar DNA** — From DNAExtractorAgent
+3. **Style Config** — Platform, duration, style, tone, pacing
+4. **Creative Brief** — Hook strategy, pain points, selling points, CTA
+5. **Camera Language** — Default shots, angles, movements, lens specs
+6. **Lighting Bible** — Setup, direction, color temp, intensities
+7. **Realism Rules** — Skin, face, hands, environment, product fidelity
+8. **Master Prompt** — Assembled mega-prompt for all generation steps
+
+### 8.10 AvatarVisionService
+
+**File:** `backend/app/services/avatar_vision_service.py`
+
+Analyzes uploaded avatar images for angle classification and quality.
+
+**Key Methods:**
+- `classify_angle(image) -> ReferenceAngle` — Determine which angle (front, left_profile, etc.)
+- `validate_coverage(images) -> dict` — Check if required angles are covered
+
+### 8.11 ReferenceValidationService
+
+**File:** `backend/app/services/reference_validation_service.py`
+
+Validates that avatar reference images meet quality and coverage requirements.
+
+**Required Angles:** front, left_profile, right_profile (minimum)
+**Optional Angles:** back, three_quarter_left, three_quarter_right
 
 ---
 
-### 4.2 Scene Prompt Generation Agent
+## 9. Core Modules — AI Agents
 
-**Model:** Gemini 2.5 Pro
+### 9.1 CoPilotAgent
 
-**Responsibilities:**
-- Convert script scenes into detailed image prompts for storyboarding (Imagen 3)
-- Convert script scenes into detailed video prompts for video generation (Flow/Veo)
-- Inject Character DNA into every prompt automatically
-- Inject master prompt template elements for consistency
-- Generate negative prompts to prevent common AI artifacts
+**File:** `backend/app/agents/copilot_agent.py` (12.7KB)
+
+AI director with 30+ years of UGC expertise. Generates scripts with product integration rules.
+
+**System Prompt Personality:**
+- Expert in UGC directing for Nike, Apple, Sephora, Amazon
+- Psychology, storytelling, platform optimization
+- 80% product visibility rule enforcement
+- Natural integration phrases
+- Per-platform timing (Instagram 30-60s, TikTok 15-30s, YouTube Shorts 30-60s)
+
+**Key Methods:**
+- `generate_script(prompt, product_name, background, platform, avatar_dna) -> Script`
+- `refine_script(script, feedback) -> Script`
+
+### 9.2 ScenePromptAgent
+
+**File:** `backend/app/agents/scene_prompt_agent.py` (16.6KB)
+
+Converts script scenes into detailed prompts for image and video generation.
 
 **Master Prompt Template Structure:**
-Each scene prompt is assembled from these layers:
-
 ```
 [REALISM_HEADER]           → Ultra-realistic UGC, shot on iPhone 17 Pro Max...
-[CHARACTER_DNA_BLOCK]      → Full character appearance description (auto-injected)
-[SCENE_SPECIFIC_BLOCK]     → This scene's unique action, expression, dialogue
+[CHARACTER_DNA_BLOCK]      → Full character appearance description
+[SCENE_SPECIFIC_BLOCK]     → This scene's action, expression, dialogue
 [ENVIRONMENT_BLOCK]        → Setting, lighting, props, background
 [CAMERA_BLOCK]             → Shot type, angle, movement, DOF
 [SKIN_REALISM_BLOCK]       → Pores, blemishes, texture, natural sheen
 [AUDIO_DESCRIPTION_BLOCK]  → Dialogue delivery, ambient sound
-[CONSISTENCY_LOCK_BLOCK]   → LOCKED attributes that must not change
-[NEGATIVE_PROMPT_BLOCK]    → What to avoid: AI plastic skin, wrong eye color, etc.
+[CONSISTENCY_LOCK_BLOCK]   → Attributes that must NOT change
+[NEGATIVE_PROMPT_BLOCK]    → What to avoid
 ```
 
-**Output per scene:**
-- `storyboard_prompt` → For Imagen 3 (static frame)
-- `video_prompt` → For Flow/Veo (animated scene)
-- `negative_prompt` → Universal negative prompt
-- `ingredient_references` → Which character DNA images to inject as Flow ingredients
+**Output per Scene:**
+- `storyboard_prompt` — For Imagen 4 (static frame)
+- `video_prompt` — For Veo 3.1 (animated scene)
+- `negative_prompt` — Universal negative constraints
+- `ingredient_references` — Which DNA images to inject
 
----
+### 9.3 StoryboardAgent
 
-### 4.3 Character DNA System
+**File:** `backend/app/agents/storyboard_agent.py` (11.5KB)
 
-This is the centerpiece of consistency. Each avatar is defined by a comprehensive Character DNA profile.
+Generates storyboard images with character + product consistency.
 
-#### 4.3.1 Character DNA Structure
+**Features:**
+- 4 variants per scene for selection
+- Character + product reference image injection
+- Consistency scoring (0-100)
+- Professional cinematography prompts (ARRI Alexa, RED Komodo specs)
 
-```json
-{
-  "avatar_id": "ARIA_28_F_INDIAN_PERFUME_MODEL",
-  "name": "Aria Sharma",
-  "tag": "ARIA_28_F_INDIAN_PERFUME_MODEL",
+**Prompt Includes:**
+- Character unique ID (e.g., `aria_sharma_casual_creator_id_001`)
+- Natural skin texture requirements (NO plastic)
+- Camera specs: body, lens, shot type, angle, movement, focus
+- Lighting specs: type, direction, color temp, key/fill/rim intensity
+- Product visibility instructions
+- Negative prompt (AI artifacts, distortion, etc.)
 
-  "face_structure": {
-    "age": 28,
-    "ethnicity": "South Asian (North Indian with subtle Mediterranean influence)",
-    "face_shape": "Oval with soft, balanced proportions",
-    "cheekbones": "High, defined with subtle natural contour",
-    "chin": "Refined, slightly pointed, elegant V-line",
-    "jawline": "Soft, feminine but defined",
-    "nose": "Straight bridge, refined tip, medium width nostrils",
-    "lips": "Medium-full, slight natural pink undertone, upper lip slightly thinner",
-    "distinguishing_marks": ["Small beauty mark on right side of face, near jawline"]
-  },
+### 9.4 VideoGeneratorAgent
 
-  "skin": {
-    "base_tone": "Warm honey-brown with golden undertones (Fitzpatrick Type IV)",
-    "texture": "Natural with visible pores on nose and inner cheeks",
-    "imperfections": [
-      "Light natural freckling across nose bridge and upper cheeks",
-      "Minimal fine lines at outer eye corners",
-      "Slight natural redness on cheeks and nose tip",
-      "Visible skin on neck shows subtle horizontal lines"
-    ],
-    "finish": "Natural luminosity, NOT oily NOT matte",
-    "realism_notes": "Real human skin imperfections present but minimal. NO heavy makeup texture."
-  },
+**File:** `backend/app/agents/video_generator_agent.py` (9KB)
 
-  "eyes": {
-    "shape": "Almond-shaped with subtle upward tilt at outer corners",
-    "iris_color": "Deep amber-brown with golden flecks near pupil",
-    "iris_color_lock": "NEVER CHANGES",
-    "eyebrows": "Thick, naturally full, dark brown, soft arch",
-    "eyelashes": "Full, dark, naturally enhanced look, longer at outer corners"
-  },
-
-  "hair": {
-    "color": "Rich dark brown with subtle natural auburn highlights in sunlight",
-    "texture": "Wavy, Type 2B waves with soft S-pattern",
-    "length": "Long, reaching mid-back (22-24 inches)",
-    "styling": "Soft center part, slightly off-center, natural flyaways present",
-    "realism_notes": "Subtle natural frizz at hairline and nape, healthy shine without greasy look"
-  },
-
-  "body": {
-    "height": "5'6\" (167 cm)",
-    "build": "Slim with soft, natural feminine curves",
-    "posture": "Confident, relaxed, naturally upright",
-    "hands": "Feminine, medium-length fingers, natural nail beds, visible veins"
-  },
-
-  "voice": {
-    "tone": "Warm, medium-pitch, slightly husky undertones",
-    "pace": "Natural, conversational (120-140 wpm)",
-    "accent": "Neutral Indian-English with soft, modern inflection",
-    "style": "Authentic, relatable, no dramatic delivery"
-  },
-
-  "wardrobe_default": {
-    "style": "Elegant casual - silk blouse or soft knit, blush pink or warm cream",
-    "neckline": "V-neck or soft scoop showing collarbones",
-    "jewelry": "Minimal - small gold hoop earrings, delicate chain necklace",
-    "restrictions": "NO logos, NO brand names, NO excessive accessories"
-  },
-
-  "prohibited_drift": [
-    "Eye color change → ALWAYS amber-brown with golden flecks",
-    "Skin tone change → ALWAYS warm honey-brown",
-    "Hair color change → ALWAYS dark brown with auburn hints",
-    "Hair length change → ALWAYS mid-back length",
-    "Face shape change → ALWAYS oval with high cheekbones",
-    "Beauty mark disappearing → ALWAYS present on right jawline",
-    "NO glasses, NO dramatic makeup changes, NO tattoos"
-  ],
-
-  "consistency_tags": "Natural South Asian beauty, soft neutral tones, glowing skin texture, wavy dark brown hair, warm amber-brown eyes, elegant oval face, subtle freckles, minimal makeup glow, timeless feminine grace",
-
-  "reference_sheet": {
-    "front_full_body": "path/to/front_full.png",
-    "left_profile_full_body": "path/to/left_full.png",
-    "right_profile_full_body": "path/to/right_full.png",
-    "back_full_body": "path/to/back_full.png",
-    "front_portrait": "path/to/front_portrait.png",
-    "left_profile_portrait": "path/to/left_portrait.png",
-    "right_profile_portrait": "path/to/right_portrait.png",
-    "composite_sheet": "path/to/composite_7panel.png"
-  }
-}
-```
-
-#### 4.3.2 Character Reference Sheet Generation
-
-**Model:** Imagen 3 (Nano Banana)
-
-The system generates a standardized 7-panel reference sheet for each avatar:
-
-**Layout:**
-```
-Top Row:    [Front Full] [Left Profile Full] [Right Profile Full] [Back Full]
-Bottom Row: [Front Portrait] [Left Profile Portrait] [Right Profile Portrait]
-```
-
-**Reference Sheet Generation Prompt Template:**
-```
-Create a professional character reference sheet, adhering strictly to
-the following character description. Use a clean, plain neutral background
-and present the layout as a technical model turnaround, ultra-realistic
-rendering with natural textures, colour palette, shading treatment.
-
-Layout: two horizontal rows with clean, even spacing and clear panel separation.
-
-Top row: four full-body standing views, side-by-side:
-1. Front view  2. Left profile  3. Right profile  4. Back view
-
-Bottom row: three highly detailed close-up portraits:
-1. Front portrait  2. Left profile portrait  3. Right profile portrait
-
-Consistency requirements: maintain perfect identity consistency across every
-panel. Keep the subject in a relaxed A-pose, consistent scale, alignment and
-proportions. Ensure accurate anatomy, clear silhouette, uniform framing.
-
-Lighting: identical across all panels (same direction, intensity, softness),
-natural controlled shadows that preserve detail.
-
-Output: crisp, sharp, print-ready reference sheet.
-
-CHARACTER DESCRIPTION:
-{CHARACTER_DNA_BLOCK}
-```
-
-**Seed Strategy:** Use a fixed seed per character for reproducibility. Store the seed in the Character DNA record.
-
-#### 4.3.3 Character DNA Extractor
-
-**Purpose:** Users upload their own avatar photos, and the system extracts a Character DNA profile automatically.
-
-**Pipeline:**
-1. **Image Analysis (Gemini Vision):** Analyze uploaded images (3-10 photos from multiple angles)
-2. **Feature Extraction:** Extract face shape, skin tone (Fitzpatrick scale), eye color, hair details, distinguishing marks, body proportions
-3. **DNA Generation:** Produce a structured Character DNA JSON matching the schema above
-4. **Reference Sheet Generation:** Generate the 7-panel reference sheet from the extracted DNA
-5. **Validation:** Display the generated reference sheet to the user for approval/adjustment
-
-**Extraction Prompt Template:**
-```
-Analyze the following {N} reference images of a person. Extract an extremely
-detailed character description covering:
-
-1. Face structure (shape, cheekbones, chin, jawline, nose, lips)
-2. Skin (exact tone using Fitzpatrick scale, texture, imperfections,
-   freckles, moles, scars)
-3. Eyes (shape, exact iris color, eyebrow details, eyelashes)
-4. Hair (color with highlights/lowlights, texture type, length,
-   styling tendencies)
-5. Body (approximate height, build, posture, hand details)
-6. Distinguishing marks (beauty marks, birthmarks, dimples,
-   asymmetries)
-7. Age estimate
-8. Ethnicity/heritage indicators
-
-Be EXHAUSTIVE. Include every visible detail that contributes to this
-person's unique identity. This description must be detailed enough to
-recreate this person's appearance consistently across multiple AI
-image/video generations.
-
-Format output as a structured JSON matching the Character DNA schema.
-```
-
----
-
-### 4.4 Storyboard Generation (Imagen 3 / Nano Banana)
-
-**Purpose:** Generate static frame previews for each scene before committing to expensive video generation.
-
-**Model:** Imagen 3 (`imagen-3.0-generate-001`)
+Generates video clips with Veo 3.1 and frame continuity chaining.
 
 **Process:**
-1. Take the `storyboard_prompt` from the Scene Prompt Agent
-2. Inject Character DNA reference images via `subjectImageConfig` (Vertex AI)
-3. Generate 2-4 candidates per scene
-4. Score candidates for character consistency (face similarity to reference sheet)
-5. Present best candidates for user selection or auto-select highest-scoring
+1. Generate Scene 1 video (uses storyboard image as ingredient)
+2. Extract last frame from Scene 1
+3. Generate Scene 2 (first frame = Scene 1 last frame, last frame = Scene 2 storyboard)
+4. Repeat for all scenes
+5. Stitch all scenes into final video via FFmpeg
 
-**Consistency Enforcement:**
-- Use `referenceType: "SUBJECT_REFERENCE"` with the character's front portrait as reference
-- Use fixed seed + detailed prompt for reproducibility
-- Include full `CONSISTENCY_LOCK_BLOCK` and `NEGATIVE_PROMPT_BLOCK`
-- Compare generated storyboard face against reference sheet face using face embedding similarity (InsightFace/ArcFace cosine similarity > 0.75 threshold)
+**Generation Modes:**
+- `FIRST_AND_LAST_FRAMES_2_VIDEO` — Interpolation between two frames
+- `ingredients` — Reference image-based generation
+- `text` — Text prompt only
+- `image` — Image-to-video
+- `extend` — Video extension
 
-**Storyboard Scene Prompt Template:**
-```
-{REALISM_HEADER}
+### 9.5 DNAExtractorAgent
 
-{CHARACTER_DNA_FULL_DESCRIPTION}
+**File:** `backend/app/agents/dna_extractor_agent.py` (4.8KB)
 
-Scene {N} of {TOTAL}: {SCENE_DESCRIPTION}
+Extracts character DNA from uploaded reference images using Gemini Vision.
 
-Setting: {ENVIRONMENT_DESCRIPTION}
-Camera: {CAMERA_ANGLE_AND_FRAMING}
-Expression: {FACIAL_EXPRESSION_AND_BODY_LANGUAGE}
-Lighting: {LIGHTING_DESCRIPTION}
-Props: {PROPS_LIST}
+**Methods:**
+- `extract_from_base64(images: list[dict]) -> AvatarDNA` — From base64 images
+- `extract(image_urls: list[str]) -> AvatarDNA` — From URLs
 
-LOCKED ATTRIBUTES (do not deviate):
-{PROHIBITED_DRIFT_LIST}
-
-Negative prompt: {NEGATIVE_PROMPT}
-
-Style: Ultra-realistic photograph, natural skin texture with visible pores
-and micro-imperfections, shot on iPhone 17 Pro Max, natural lighting,
-{ASPECT_RATIO} format.
-```
-
----
-
-### 4.5 Video Generation Engine
-
-**Primary Model:** Google Flow (via ingredients system)
-**Secondary Models:** Veo 3, Veo 2 (API-accessible fallbacks)
-**Model Selection:** User can choose or system auto-selects based on scene complexity
-
-#### 4.5.1 Flow Integration (Ingredients System)
-
-Flow's Ingredients feature is the primary character consistency mechanism for video generation.
-
-**Per-character ingredients to inject:**
-1. Front portrait (from reference sheet)
-2. 3/4 portrait (from reference sheet)
-3. Side portrait (from reference sheet)
-4. Full-body front (from reference sheet)
-5. Approved storyboard frame for the current scene
-
-**Video Prompt Assembly:**
-```
-{REALISM_HEADER}
-
-[Ingredient 1 = character front portrait]
-[Ingredient 2 = character 3/4 portrait]
-[Ingredient 3 = approved storyboard frame for this scene]
-
-{SCENE_VIDEO_PROMPT}
-
-The woman shown in the ingredients ({CHARACTER_NAME}) performs the following
-action: {ACTION_DESCRIPTION}
-
-Camera: {CAMERA_MOVEMENT_DESCRIPTION}
-Duration: 8 seconds
-Aspect ratio: {ASPECT_RATIO}
-
-CRITICAL CONSISTENCY: The character MUST match the uploaded ingredients exactly.
-{PROHIBITED_DRIFT_AS_NEGATIVE_INSTRUCTIONS}
-
-{NEGATIVE_PROMPT}
-```
-
-#### 4.5.2 Last-Frame Chaining for Scene Continuity
-
-Since Flow/Veo generates 8-second clips, longer videos require stitching.
-
-**Chaining Algorithm:**
-```
-FOR each scene S[i] where i > 0:
-  1. Extract last frame of S[i-1]:
-     ffmpeg -sseof -0.04 -i scene_{i-1}.mp4 -frames:v 1 last_frame_{i-1}.png
-
-  2. Add last_frame_{i-1}.png as an additional ingredient for S[i]
-
-  3. Prepend to S[i]'s prompt:
-     "Continuing directly from the previous shot. The scene begins
-      with the same composition as the reference frame..."
-
-  4. Generate 3-4 candidates for S[i]
-
-  5. Score each candidate:
-     - SSIM between candidate's first frame and S[i-1]'s last frame (weight: 0.3)
-     - Face embedding similarity to character DNA (weight: 0.4)
-     - LPIPS perceptual similarity to storyboard (weight: 0.3)
-
-  6. Select highest-scoring candidate
-```
-
-#### 4.5.3 Multi-Candidate Generation & Selection
-
-For each scene, generate multiple video candidates and select the best:
-
-**Selection Criteria:**
-| Criterion | Weight | Measurement |
-|-----------|--------|-------------|
-| Character identity match | 40% | ArcFace cosine similarity to reference |
-| Scene continuity | 30% | SSIM/LPIPS to previous clip's last frame |
-| Prompt adherence | 20% | CLIP score between prompt and generated frame |
-| Technical quality | 10% | Sharpness, no artifacts, stable motion |
-
-#### 4.5.4 Multiple Video Outcome Selection
-
-Users can select different output configurations:
-
-| Output Type | Description |
-|-------------|-------------|
-| UGC Testimonial | Talking head + b-roll, 30-60s, 9:16 vertical |
-| Product Showcase | Product-focused with model interaction, 15-30s |
-| Story/Narrative | Multi-scene emotional narrative, 60-120s |
-| Quick Reel | Fast-paced cuts, text overlays, 15s |
-| Comparison/Review | Side-by-side, before/after, 30-60s |
-
----
-
-### 4.6 Audio Generation Engine
-
-#### 4.6.1 Voiceover Generation
-
-**Primary:** Gemini TTS (`gemini-2.5-flash-preview-tts`)
-**Fallback:** Google Cloud Text-to-Speech (Neural2/WaveNet voices)
-
-**Process:**
-1. Take per-scene dialogue text from Script Agent
-2. Apply narration prompt styling (tone, pace, emotion)
-3. Generate voiceover audio per scene
-4. Generate full continuous voiceover (preferred for natural flow)
-5. Segment the continuous voiceover at scene boundaries
-
-**Audio Generation is FIRST in the pipeline** — video clips are generated to match audio timing, not the other way around.
-
-**Voice Configuration per Avatar:**
+**Output (AvatarDNA):**
 ```json
 {
-  "avatar_id": "ARIA_28_F_INDIAN_PERFUME_MODEL",
-  "tts_config": {
-    "model": "gemini-2.5-flash-preview-tts",
-    "voice_name": "Kore",
-    "language": "en-US",
-    "speaking_rate": 1.0,
-    "pitch": 0.0,
-    "style_prompt": "Warm conversational female voice, authentic UGC feel, slight excitement, natural breath sounds between sentences"
+  "face": "Oval face, high cheekbones, refined chin...",
+  "skin": "Warm honey-brown, Fitzpatrick Type IV...",
+  "eyes": "Almond-shaped, deep amber-brown with golden flecks...",
+  "hair": "Rich dark brown, Type 2B waves, mid-back length...",
+  "body": "5'6\", slim with soft feminine curves...",
+  "voice": "Warm, medium-pitch, slight Indian-English accent...",
+  "wardrobe": "Elegant casual, silk blouse, minimal gold jewelry...",
+  "prohibited_drift": "Eye color NEVER changes, skin tone NEVER changes..."
+}
+```
+
+### 9.6 PromptEngineeringAgent
+
+**File:** `backend/app/agents/prompt_engineering_agent.py` (15.1KB)
+
+Applies research-backed prompting best practices for artifact-free generation.
+
+**Components:**
+- `PromptComponents` dataclass (subject, context, style, camera, lighting, quality, constraints, negative)
+- Comprehensive negative prompt library (universal, anatomy, product, video)
+- Quality modifiers (photo, cinematic, product, portrait, ugc)
+- Camera specs presets (close_up, medium, wide, product, cinematic)
+- Lighting presets (natural, golden_hour, studio, soft, dramatic)
+
+**Key Method:**
+- `engineer_image_prompt(scene, character, product, camera, lighting, quality) -> (positive_prompt, negative_prompt)`
+
+### 9.7 RequirementsAgent
+
+**File:** `backend/app/agents/requirements_agent.py` (9.7KB)
+
+Checks generation readiness and identifies missing requirements.
+
+**Validates:**
+- Avatar selected + DNA available
+- Product images uploaded (for VIDEO_READY intent)
+- Platform configured
+- Script generated and approved
+- API keys available and valid
+
+---
+
+## 10. Character DNA System
+
+### 10.1 DNA Structure
+
+Each avatar has a comprehensive Character DNA profile stored as JSON:
+
+```json
+{
+  "face": "Oval face, balanced features, high cheekbones, refined chin",
+  "skin": "Warm honey-brown, Fitzpatrick Type IV, visible pores, light freckles",
+  "eyes": "Almond-shaped, deep amber-brown with golden flecks, full dark brows",
+  "hair": "Rich dark brown with auburn highlights, Type 2B waves, mid-back length",
+  "body": "5'6\", slim with soft feminine curves, confident posture",
+  "voice": "Warm, medium-pitch, slightly husky, neutral Indian-English accent",
+  "wardrobe": "Elegant casual, silk blouse, minimal gold jewelry, no logos",
+  "prohibited_drift": "Eye color ALWAYS amber-brown, skin ALWAYS honey-brown, hair ALWAYS dark brown, beauty mark ALWAYS on right jawline"
+}
+```
+
+### 10.2 Reference Image System
+
+Avatars store reference images with angle classification:
+
+**Required Angles:** front, left_profile, right_profile
+**Optional Angles:** back, three_quarter_left, three_quarter_right
+
+```json
+{
+  "referenceAngles": {
+    "front": "/uploads/avatars/user123/front.jpg",
+    "left_profile": "/uploads/avatars/user123/left.jpg",
+    "right_profile": "/uploads/avatars/user123/right.jpg"
+  },
+  "angleValidation": {
+    "front": true,
+    "left_profile": true,
+    "right_profile": true,
+    "back": false,
+    "three_quarter_left": false,
+    "three_quarter_right": false
   }
 }
 ```
 
-#### 4.6.2 Audio-Video Sync Strategy
+### 10.3 DNA Extraction Pipeline
 
-```
-1. Generate full voiceover audio → measure total duration
-2. Segment audio into per-scene chunks at natural pause points
-3. For each scene:
-   a. Audio chunk duration = T seconds
-   b. If T <= 8s: generate one 8-second video clip, trim to T
-   c. If T > 8s: generate ceil(T/8) clips, chain them
-   d. Apply slight speed adjustment (±10% max) via FFmpeg setpts
-      to match video to audio duration exactly
-4. Layer background music at 15-20% volume
-5. Apply J-cuts: start next scene's audio 0.5s before video transition
-6. Apply L-cuts: continue current scene's ambient audio 0.5s into next scene
-```
-
-#### 4.6.3 Lip Sync (When Showing Speaking Face)
-
-**Approach:** Post-processing with dedicated lip-sync models
-
-**Pipeline:**
-1. Generate the video clip (mouth may not match audio)
-2. If scene shows close-up of speaking face:
-   - Apply **Wav2Lip** or **SadTalker** to re-render mouth region to match audio
-3. If scene is medium/wide shot or subject isn't directly facing camera:
-   - Skip lip sync (mismatch is imperceptible)
-
-**Avoidance Strategy (Preferred):**
-Design shots to minimize visible speaking faces:
-- Use b-roll cutaways during voiceover
-- Frame subject from chest up looking away
-- Use text-on-screen over product shots
-- Use J-cuts to hear audio before seeing the speaker
+1. User uploads 3-10 photos from multiple angles
+2. AvatarVisionService classifies each image's angle
+3. ReferenceValidationService checks coverage (front + 2 profiles minimum)
+4. DNAExtractorAgent analyzes images with Gemini Vision
+5. Structured AvatarDNA JSON is generated and stored
+6. User can review and manually adjust DNA fields
 
 ---
 
-### 4.7 Post-Production Pipeline
+## 11. Production Bible System
 
-**Tools:** FFmpeg (core), MoviePy (Python wrapper), custom pipeline orchestrator
+The Production Bible is a master document assembled per-job that ensures consistency across all pipeline steps.
 
-#### 4.7.1 Clip Stitching
+### 11.1 Bible Components
 
-```bash
-# Crossfade transitions between clips
-ffmpeg -i scene1.mp4 -i scene2.mp4 -i scene3.mp4 \
-  -filter_complex \
-  "[0:v][1:v]xfade=transition=fade:duration=0.8:offset=7.2[v01]; \
-   [v01][2:v]xfade=transition=fade:duration=0.8:offset=14.4[outv]" \
-  -map "[outv]" stitched_video.mp4
-```
+| Component | Source | Purpose |
+|-----------|--------|---------|
+| Product DNA | ProductVisionService | Product appearance consistency |
+| Avatar DNA | DNAExtractorAgent | Character appearance consistency |
+| Style Config | User selection | Platform, duration, tone, pacing |
+| Creative Brief | User + AI expansion | Hook, pain points, CTA strategy |
+| Camera Language | User + defaults | Shot types, angles, movements, lens |
+| Lighting Bible | User + defaults | Setup, direction, color temp, intensity |
+| Realism Rules | System defaults | Skin, face, hands, environment rules |
+| Master Prompt | Auto-assembled | Combined mega-prompt for all steps |
 
-**Transition types by scene context:**
-| Scene Transition | Transition Type | Duration |
-|-----------------|-----------------|----------|
-| Same character, same setting | Hard cut or 0.3s dissolve | 0.3s |
-| Same character, different setting | 0.8s crossfade | 0.8s |
-| Different angle of same action | Match cut (hard) | 0s |
-| Emotional shift | 1.0s dissolve | 1.0s |
-| Topic change | Dip to black | 0.5s |
-| Energy increase | Whip pan / zoom punch | 0.2s |
-
-#### 4.7.2 Color Grading Pipeline
-
-```
-1. Extract "hero frame" from Scene 1 (sets the visual baseline)
-2. For each subsequent clip:
-   a. Histogram-match to hero frame (OpenCV)
-   b. Apply unified LUT (.cube file) for consistent color grade
-   c. Fine-tune: brightness ±5%, contrast ±5%, saturation ±3%
-3. Apply global film grain (FFmpeg noise filter, 2-4% intensity)
-4. Apply subtle vignette (5-10% edge darkening)
-```
-
-#### 4.7.3 Ultra-Realism Post-Processing
-
-To ensure output does NOT look AI-generated:
-
-| Technique | Implementation |
-|-----------|---------------|
-| Film grain | FFmpeg `noise=alls=3:allf=t+u` |
-| Subtle lens distortion | Barrel distortion filter, 0.5-1% |
-| Chromatic aberration | Slight RGB channel offset at edges |
-| Micro camera shake | Random sub-pixel position jitter |
-| Depth of field | Selective blur on background elements |
-| Compression artifacts | Re-encode at social media bitrates |
-| Skin texture overlay | Composite pore/texture layer at 10-15% opacity |
-| Natural vignetting | Gradual 5% edge darkening |
-| Metadata injection | Realistic EXIF data (iPhone camera model, GPS, timestamp) |
-
-#### 4.7.4 Final Render Settings
+### 11.2 Realism Rules
 
 ```json
 {
-  "video_codec": "H.265 (HEVC)",
-  "video_bitrate": "8-12 Mbps",
-  "audio_codec": "AAC",
-  "audio_bitrate": "256 kbps",
-  "audio_sample_rate": 48000,
-  "resolution": "1080x1920 (9:16) or 1920x1080 (16:9)",
-  "frame_rate": 30,
-  "color_space": "BT.709",
-  "container": "MP4"
+  "skin": "Visible pores, micro-imperfections, natural sebaceous activity, fine vellus hair",
+  "face": "Natural asymmetry, one eyebrow slightly higher, natural tooth variation",
+  "hands": "Correct finger count, natural proportions, visible veins and tendons",
+  "environment": "Natural window light, subtle shadows, authentic room details",
+  "product_fidelity": "Exact label text, correct colors, accurate proportions, real reflections",
+  "text_overlays": "Legible, correctly spelled, properly positioned"
 }
 ```
 
 ---
 
-## 5. API Pool Management
+## 12. Chat Experience — Smart Copilot
 
-### 5.1 Multi-API Pool Architecture
+### 12.1 Architecture
 
-Each API service has a pool of API keys that rotate for load balancing and fallback.
+The chat system uses Server-Sent Events (SSE) for real-time streaming and has three-way intent detection.
 
-```json
-{
-  "api_pools": {
-    "gemini_text": {
-      "primary": [
-        {"key": "GEMINI_KEY_1", "model": "gemini-2.5-pro", "rpm_limit": 60, "status": "active"},
-        {"key": "GEMINI_KEY_2", "model": "gemini-2.5-pro", "rpm_limit": 60, "status": "active"}
-      ],
-      "fallback": [
-        {"key": "GEMINI_KEY_3", "model": "gemini-2.5-flash", "rpm_limit": 120, "status": "active"}
-      ]
-    },
-    "imagen": {
-      "primary": [
-        {"key": "IMAGEN_KEY_1", "model": "imagen-3.0-generate-001", "rpm_limit": 30, "status": "active"}
-      ],
-      "fallback": [
-        {"key": "IMAGEN_KEY_2", "model": "imagen-3.0-fast-generate-001", "rpm_limit": 60, "status": "active"}
-      ]
-    },
-    "video_gen": {
-      "primary": [
-        {"key": "FLOW_KEY_1", "model": "flow", "rpm_limit": 10, "status": "active"}
-      ],
-      "fallback": [
-        {"key": "VEO_KEY_1", "model": "veo-3", "rpm_limit": 10, "status": "active"},
-        {"key": "VEO_KEY_2", "model": "veo-2", "rpm_limit": 10, "status": "active"}
-      ]
-    },
-    "tts": {
-      "primary": [
-        {"key": "TTS_KEY_1", "model": "gemini-2.5-flash-preview-tts", "rpm_limit": 60, "status": "active"}
-      ],
-      "fallback": [
-        {"key": "CLOUD_TTS_KEY_1", "model": "google-cloud-tts-neural2", "rpm_limit": 100, "status": "active"}
-      ]
-    }
-  }
+**Flow:**
+```
+User Message → Intent Detection (Gemini Flash, 5s timeout)
+                    ↓
+          ┌─────────┼──────────┐
+          ▼         ▼          ▼
+       CHAT    VIDEO_NEEDS   VIDEO_READY
+    (general     INPUT       (start pipeline)
+     chat)    (guidance)
+```
+
+### 12.2 Intent Detection
+
+**Model:** Gemini 2.5 Flash with `temperature: 0`
+**Timeout:** 5 seconds (falls back to CHAT on timeout)
+
+**Strict matching:** Only exact matches for `VIDEO_READY`, `VIDEO_NEEDS_INPUT`, `CHAT` — no substring matching.
+
+**VIDEO_READY triggers when:** User has selected an avatar, provided product info, and gives a clear generation instruction.
+
+### 12.3 Chat Features
+
+- **SSE Streaming** — Real-time token-by-token response
+- **AbortController** — Cancel in-flight streams via "Stop generating" button
+- **Smart Auto-Scroll** — Only scrolls if user is within 150px of bottom
+- **Error Recovery** — Error banner with dismiss, not silent failures
+- **Attachment Upload** — Images/videos uploaded via `/api/upload`, URLs passed in message body
+- **Polling Guard** — Polling paused during active stream to prevent state clobber
+- **Mode Indicator** — Shows "Ready to generate" (green), "Add avatar/product" (amber), or "Chat mode" (muted)
+
+### 12.4 Toolbar
+
+Simplified to 4 items: `[+Attach] [Avatar] [Settings Gear] — spacer — [Send]`
+
+All generation controls (mode, aspect ratio, duration, camera, lighting, audio, model selection) consolidated into the Settings gear panel.
+
+---
+
+## 13. Mass Generator Wizard
+
+### 13.1 6-Step Process
+
+| Step | Name | Action |
+|------|------|--------|
+| 1 | **Product** | Upload product images → extract Product DNA via Gemini Vision |
+| 2 | **Avatar** | Select existing avatar or create new one with DNA extraction |
+| 3 | **Brief** | User provides creative brief → AI expands with hook strategy, selling points, CTA |
+| 4 | **Script** | AI generates structured scene-by-scene script → user reviews/edits |
+| 5 | **Generate** | Pipeline generates storyboard images + video clips per scene |
+| 6 | **Video** | Continue to editor for final assembly |
+
+### 13.2 State (mass-generator-store.ts)
+
+```typescript
+interface WizardState {
+  currentStep: WizardStep;
+  productImages: string[];
+  productName: string;
+  brandName: string;
+  productDNA: ProductDNA | null;
+  selectedAvatarId: string | null;
+  avatarDNA: AvatarDNA | null;
+  platform: Platform;
+  style: VideoStyle;
+  tone: Tone;
+  duration: number;
+  userPrompt: string;
+  creativeBrief: CreativeBrief | null;
+  productionBible: ProductionBible | null;
+  script: Script | null;
 }
 ```
 
-### 5.2 Failover Logic
+Persisted via Zustand persist middleware for recovery across sessions.
+
+---
+
+## 14. Video Editor — Post-Production
+
+### 14.1 Layout
 
 ```
-1. Try primary pool (round-robin across active keys)
-2. On failure (429/500/503):
-   a. Mark key as "cooldown" for 60s
-   b. Try next key in primary pool
-   c. If all primary keys exhausted → switch to fallback pool
-3. On fallback failure:
-   a. Queue the request for retry after 120s
-   b. Notify user of delay
-4. Track per-key usage metrics for rate limit optimization
+┌─────────────────────────────────────────────────┐
+│  Editor Toolbar (undo, redo, clip selector, export)  │
+├───────────────────────────────┬─────────────────┤
+│                               │                  │
+│   Video Preview Panel         │  Properties      │
+│   (live canvas + playback)    │  Panel           │
+│                               │  (clip, audio,   │
+│                               │   caption props) │
+├───────────────────────────────┴─────────────────┤
+│  Timeline Editor (300px height)                      │
+│  ┌─ Time Ruler ────────────────────────────────┐    │
+│  │ Video Track    [Clip 1][Trans][Clip 2]...   │    │
+│  │ Audio Track    [Voiceover]                   │    │
+│  │ Music Track    [Background Music]            │    │
+│  │ Captions Track [Caption 1][Caption 2]...     │    │
+│  └─────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────┘
+```
+
+### 14.2 Features
+
+- **Multi-track timeline** — Video, voiceover, music, SFX, captions
+- **Clip trimming** — Adjust start/end points per clip
+- **Clip cropping** — Percentage-based crop settings
+- **Transitions** — 12+ types (fade, crossfade, slide, wipe, zoom, dissolve)
+- **Playback** — Play/pause/stop/seek with playhead indicator
+- **Caption editing** — Per-caption timing, style (font, size, color, animation)
+- **Audio mixing** — Per-track volume, fade in/out, master volume
+- **Voiceover generation** — In-editor TTS via Gemini
+- **Music library** — Upload or select background music
+- **Export** — Resolution (720p, 1080p, 4K), format (MP4, WebM), quality (draft, standard, high)
+
+### 14.3 State (editor-store.ts)
+
+```typescript
+interface EditorState {
+  projectId: string | null;
+  sceneClips: Record<number, TimelineClip[]>;
+  scriptScenes: Scene[];
+  timelineClips: TimelineClip[];
+  transitions: TimelineTransition[];
+  playbackState: 'stopped' | 'playing' | 'paused';
+  currentTime: number;
+  zoom: number; // 1-10
+  aspectRatio: AspectRatio;
+  voiceoverClips: AudioClip[];
+  musicClips: AudioClip[];
+  sfxClips: AudioClip[];
+  masterVolume: number;
+  captions: Caption[];
+  captionStyle: CaptionStyle;
+  exportSettings: ExportSettings;
+  exportProgress: ExportProgress;
+}
 ```
 
 ---
 
-## 6. Character Consistency Enforcement Pipeline
+## 15. Library & Job Management
 
-This is the most critical system in the entire platform. Character inconsistency is the #1 quality issue in AI video generation.
+### 15.1 Job Lifecycle
 
-### 6.1 Multi-Layer Consistency Strategy
+```
+queued → running → paused (storyboard_review) → running → completed
+                                                        → failed
+                                                        → cancelled
+```
+
+### 15.2 Library UI
+
+- **Grid view** with thumbnails and status badges
+- **Search** by job title/product name
+- **Filter** by status (all, completed, running, failed, queued)
+- **Pagination** (page-based, configurable limit)
+- **Quick actions:**
+  - Download final video
+  - Continue in chat
+  - Re-generate (version chaining)
+  - Delete job
+- **Detail dialog** with 3 tabs:
+  - **Preview** — Video player
+  - **Scenes** — Scene-by-scene breakdown (script + storyboard + video)
+  - **Details** — Metadata, consistency scores, timestamps
+
+### 15.3 Script Editing
+
+Users can edit scripts in-place after generation:
+
+- Per-scene editing (dialogue, action, camera, lighting)
+- Track which scenes were modified
+- Reset individual scene edits or all edits
+- Regenerate only modified scenes
+
+---
+
+## 16. Database Schema
+
+### 16.1 Prisma Models (10 Total)
+
+#### User
+```prisma
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  chats         Chat[]
+  avatars       Avatar[]
+  jobs          Job[]
+  apiKeys       UserApiKey[]
+}
+```
+
+#### Avatar
+```prisma
+model Avatar {
+  id               String   @id @default(cuid())
+  name             String
+  tag              String
+  uniqueIdentifier String?  @unique
+  isSystem         Boolean  @default(false)
+  thumbnailUrl     String?
+  referenceSheet   String?
+  referenceImages  String[]
+  dna              Json?
+  detailedDNA      String?  @db.Text
+  referenceAngles  Json?
+  angleValidation  Json?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User?    @relation(...)
+  chats            Chat[]
+  jobs             Job[]
+}
+```
+
+#### Chat + Message
+```prisma
+model Chat {
+  id        String    @id @default(cuid())
+  title     String    @default("New Chat")
+  userId    String
+  avatarId  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(...)
+  avatar    Avatar?   @relation(...)
+  messages  Message[]
+  jobs      Job[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  chatId    String
+  role      Role     // user | assistant | system
+  content   String   @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(...)
+}
+```
+
+#### Job (Production Pipeline)
+```prisma
+model Job {
+  id                 String        @id @default(cuid())
+  chatId             String?
+  avatarId           String?
+  userId             String
+  status             JobStatus     // queued | running | paused | completed | failed | cancelled
+  currentStep        PipelineStep  // 10 enum values
+  progress           Int           @default(0)
+  script             Json?
+  storyboard         Json?
+  storyboardScenes   Json[]
+  videoUrls          Json?
+  videoScenes        Json[]
+  audioUrl           String?
+  finalVideoUrl      String?
+  errorMessage       String?
+
+  // Product & Config
+  productName        String?
+  productImages      String[]
+  backgroundSetting  String?
+  platform           String?
+  maxSceneDuration   Int           @default(8)
+  wordsPerMinute     Int           @default(150)
+
+  // Consistency
+  consistencyScores  Json?
+  regenerationLog    Json?
+  avatarDNA          Json?
+  avatarRefImages    String[]
+
+  // Resumability
+  lastCompletedStep  PipelineStep?
+  stepArtifacts      Json?
+  version            Int           @default(1)
+  parentJobId        String?
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  user               User          @relation(...)
+  chat               Chat?         @relation(...)
+  avatar             Avatar?       @relation(...)
+}
+```
+
+#### PipelineStep Enum
+```prisma
+enum PipelineStep {
+  script_generation
+  scene_prompts
+  storyboard
+  storyboard_review
+  video_generation
+  video_extension
+  audio_generation
+  post_production
+  quality_check
+  complete
+}
+```
+
+#### API Key Models
+```prisma
+model UserApiKey {
+  id           String       @id @default(cuid())
+  userId       String
+  label        String
+  service      PoolType     // google_ai | gcs
+  encryptedKey String       @db.Text
+  iv           String
+  status       ApiKeyStatus // active | rate_limited | exhausted | error
+  lastUsedAt   DateTime?
+  errorCount   Int          @default(0)
+  user         User         @relation(...)
+}
+
+model ApiPoolKey {
+  id           String       @id @default(cuid())
+  service      PoolType
+  encryptedKey String       @db.Text
+  iv           String
+  status       ApiKeyStatus @default(active)
+  lastUsedAt   DateTime?
+  errorCount   Int          @default(0)
+}
+```
+
+---
+
+## 17. API Reference — Backend
+
+### 17.1 Health
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Returns `{"status": "ok", "version": "0.1.0"}` |
+
+### 17.2 Generation
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/generation/start` | Start full pipeline (creates Job, launches pipeline) |
+
+### 17.3 Jobs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/jobs/{id}` | Get job status and data |
+| PATCH | `/api/v1/jobs/{id}` | Update job status/progress |
+
+### 17.4 Avatars
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/avatars` | List all avatars |
+| POST | `/api/v1/avatars` | Create avatar with DNA |
+| GET | `/api/v1/avatars/{id}` | Get avatar details |
+| PATCH | `/api/v1/avatars/{id}` | Update avatar |
+| DELETE | `/api/v1/avatars/{id}` | Delete avatar |
+| POST | `/api/v1/avatars/extract-dna` | Extract DNA from images |
+| POST | `/api/v1/avatars/upload` | Upload reference images |
+| POST | `/api/v1/avatars/{id}/validate-angles` | Validate reference angle coverage |
+
+### 17.5 Copilot
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/copilot/generate-script` | Generate script from creative brief |
+
+### 17.6 Storyboard
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/storyboard/generate` | Generate storyboard images |
+| POST | `/api/v1/storyboard/regenerate-scene` | Regenerate single scene |
+| POST | `/api/v1/storyboard/regenerate-all` | Regenerate all scenes |
+
+### 17.7 Video
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/video/generate` | Generate video clips from script + storyboard |
+
+### 17.8 Editor
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/editor/compile` | Compile final video with FFmpeg |
+
+### 17.9 Mass Generator
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/mass-generator/analyze-product` | Extract Product DNA |
+| POST | `/api/v1/mass-generator/expand-brief` | AI-expand creative brief |
+| POST | `/api/v1/mass-generator/generate-bible` | Assemble Production Bible |
+
+---
+
+## 18. API Reference — Frontend Routes
+
+### 18.1 Authentication
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/register` | User registration |
+| `[...nextauth]` | `/api/auth/*` | NextAuth.js handlers |
+
+### 18.2 Chat
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/chat` | List user chats |
+| POST | `/api/chat` | Create new chat |
+| GET | `/api/chat/[chatId]` | Get chat metadata |
+| DELETE | `/api/chat/[chatId]` | Delete chat |
+| GET | `/api/chat/[chatId]/messages` | Get messages (cursor pagination) |
+| POST | `/api/chat/[chatId]/messages` | Send message (SSE stream response) |
+
+### 18.3 Avatars
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/avatars` | List system + user avatars |
+| POST | `/api/avatars` | Create avatar |
+| GET | `/api/avatars/[avatarId]` | Get avatar details |
+| PATCH | `/api/avatars/[avatarId]` | Update avatar |
+| DELETE | `/api/avatars/[avatarId]` | Delete avatar |
+| POST | `/api/avatars/extract-dna` | Extract DNA from images |
+| POST | `/api/avatars/upload` | Upload reference images |
+| GET | `/api/avatars/[avatarId]/images` | Get reference images |
+
+### 18.4 Jobs & Progress
+
+| Method | Path | Description |
+|--------|------|-------------|
+| PATCH | `/api/jobs/[jobId]/progress` | Webhook for backend progress updates |
+| GET | `/api/jobs/[jobId]/stream` | SSE stream for real-time progress |
+| POST | `/api/jobs/[jobId]/decision` | Submit user decision (approve/reject) |
+| POST | `/api/jobs/[jobId]/reopen` | Re-open completed job |
+| POST | `/api/jobs/[jobId]/update-artifacts` | Update step outputs |
+
+### 18.5 Library
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/library` | Paginated job list |
+| GET | `/api/library/[jobId]` | Get job details |
+| DELETE | `/api/library/[jobId]` | Delete job |
+
+### 18.6 Generation Proxies
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/copilot/generate-script` | Proxy to backend copilot |
+| POST | `/api/storyboard/generate` | Proxy to backend storyboard |
+| POST | `/api/storyboard/regenerate-scene` | Proxy to backend regenerate scene |
+| POST | `/api/storyboard/regenerate-all` | Proxy to backend regenerate all |
+| POST | `/api/video/generate` | Proxy to backend video generation |
+
+### 18.7 File Uploads
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/upload` | Generic file upload (images, videos) |
+| POST | `/api/products/upload` | Product image upload |
+| POST | `/api/editor/upload-music` | Music file upload |
+| POST | `/api/editor/generate-voiceover` | Generate TTS audio |
+| GET | `/api/editor/music-library` | Available music tracks |
+
+### 18.8 Editor
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/editor/compile/[jobId]` | Compile final video export |
+
+### 18.9 Settings
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/settings/profile` | Get user profile |
+| PATCH | `/api/settings/profile` | Update profile |
+| GET | `/api/settings/api-keys` | List API keys |
+| POST | `/api/settings/api-keys` | Add API key |
+| DELETE | `/api/settings/api-keys/[keyId]` | Remove API key |
+| PATCH | `/api/settings/api-keys/[keyId]` | Update key status |
+
+---
+
+## 19. Authentication & Security
+
+### 19.1 Auth System
+
+**Provider:** NextAuth.js v5 with two providers:
+1. **Google OAuth** — SSO via Google
+2. **Credentials** — Email/password with bcrypt v12 hashing
+
+**Session Strategy:** JWT tokens
+
+**Password Requirements:** 6-100 characters, bcrypt hashed
+
+### 19.2 Route Protection
+
+**Middleware** (`src/middleware.ts`) protects all dashboard routes:
+- `/chat/*`, `/avatars/*`, `/library/*`, `/explore/*`, `/categories/*`, `/settings/*`
+
+**API Route Guards:** Every API route checks `auth()` session and verifies `session.user.id`.
+
+### 19.3 API Key Security
+
+User API keys are encrypted before database storage:
+- AES-256-GCM encryption
+- Per-key initialization vector (IV)
+- Keys decrypted only at request time, never stored in memory
+
+### 19.4 File Upload Security
+
+- MIME type validation (image/*, video/* only)
+- File size limits (10MB per file)
+- Filename sanitization (replace non-alphanumeric chars)
+- User-scoped upload directories
+
+---
+
+## 20. State Management
+
+### 20.1 Chat Store (`chat-store.ts`)
+
+**36+ state fields** covering:
+
+| Category | Fields |
+|----------|--------|
+| Chat | activeChatId, messages, isStreaming, streamingContent |
+| Error | error, lastFailedContent |
+| Generation | generationMode, selectedModel (script, storyboard, video, tts) |
+| Video | aspectRatio, duration, cameraSetup, lightingSetup |
+| Style | videoStyle, platform, resolution, realismFilters, colorGrading |
+| Avatar | selectedAvatarId, avatarReferenceImages, avatarDNA |
+| Audio | audioEnabled |
+| Product | productImages, productName, backgroundSetting |
+| Script Edit | activeJobId, editingScript, originalScript, editedSceneNumbers |
+
+**Persistence:** Generation settings persisted via Zustand persist middleware.
+
+### 20.2 Editor Store (`editor-store.ts`)
+
+**30+ state fields** covering timeline, playback, audio, captions, export.
+
+### 20.3 Mass Generator Store (`mass-generator-store.ts`)
+
+**20+ state fields** covering the 6-step wizard progress.
+
+---
+
+## 21. Real-Time Communication
+
+### 21.1 Server-Sent Events (SSE)
+
+Used for two purposes:
+
+**Chat Streaming:**
+- POST `/api/chat/[chatId]/messages` returns SSE stream
+- Events: `user_message`, `stream` (token chunks), `assistant_message`, `error`, `done`
+- AbortController enables client-side cancellation
+
+**Job Progress:**
+- GET `/api/jobs/[jobId]/stream` polls every 1s, max 10 minutes
+- Returns progress percentage, current step, status updates
+
+### 21.2 Redis Pub/Sub
+
+**Channel:** `job:{jobId}:progress`
+
+Pipeline steps publish progress updates:
+```python
+await publish_progress(job_id, {
+    "status": "running",
+    "currentStep": "video_generation",
+    "progress": 60,
+    "message": "Generating scene 3 of 5..."
+})
+```
+
+### 21.3 Webhook Callbacks
+
+Backend calls frontend webhook on pipeline milestones:
+```
+POST http://localhost:3000/api/jobs/{jobId}/progress
+Body: { status, currentStep, progress, message, data }
+```
+
+The webhook creates assistant messages in the chat for user-facing updates.
+
+### 21.4 Message Polling
+
+- Normal: Every 3 seconds
+- During streaming: Paused (prevents state clobber)
+- After stream ends: Immediate poll to catch webhook-injected messages
+
+---
+
+## 22. Character Consistency Enforcement
+
+### 22.1 Six-Layer Strategy
 
 ```
 Layer 1: CHARACTER DNA PROMPT INJECTION
-  → Every single prompt includes the full character DNA description
-  → Prohibited drift list included as negative instructions
-  → Consistency tags appended to every prompt
+  → Every prompt includes full character DNA description
+  → Prohibited drift list as negative instructions
 
 Layer 2: VISUAL REFERENCE INJECTION
-  → Flow ingredients: 3-5 reference images per character per scene
-  → Veo: Reference image passed as input image
-  → Imagen: subjectImageConfig with reference portrait
+  → Veo 3.1 ingredients: 3 reference images per scene
+  → Imagen 4: Up to 14 reference images
+  → Angle-matched references based on scene camera
 
 Layer 3: STORYBOARD VALIDATION
-  → Generated storyboard frames are compared to reference sheet
-  → ArcFace cosine similarity must be > 0.75
-  → Scenes below threshold are regenerated (up to 3 retries)
+  → Generated frames compared to reference images
+  → Gemini Vision similarity scoring > 0.75
 
 Layer 4: VIDEO FRAME VALIDATION
-  → Sample frames (1/sec) from generated video clips
-  → Each sampled frame is compared to character reference
-  → If any frame drops below 0.65 similarity → flag for regeneration
+  → Sample frames at 1/sec from generated clips
+  → Each frame compared to character reference
+  → Frames below 0.65 flagged for regeneration
 
 Layer 5: CROSS-SCENE CONSISTENCY CHECK
-  → Compare character appearance across all scenes
-  → Standard deviation of face similarity scores must be < 0.1
-  → Outlier scenes are regenerated
+  → Standard deviation of similarity across all scenes < 0.10
+  → Outlier scenes auto-regenerated
 
-Layer 6: POST-PROCESSING CORRECTION
-  → If mild inconsistency detected: apply face-swap (FaceFusion)
-    to correct the drifted frames
-  → Last resort: regenerate the scene entirely
+Layer 6: AUTO-REGENERATION
+  → Failed scenes regenerated up to 3 times
+  → Different seed/prompt variation on each retry
 ```
 
-### 6.2 Character Consistency Scoring
+### 22.2 Consistency Scoring
 
-**Face Similarity Pipeline:**
-```python
-# Per-frame character validation
-def validate_character_consistency(frame, character_dna):
-    # 1. Detect face in frame
-    face = insightface.detect(frame)
-
-    # 2. Extract face embedding
-    embedding = arcface.get_embedding(face)
-
-    # 3. Compare to character DNA reference embedding
-    reference_embedding = character_dna.reference_embeddings["front_portrait"]
-
-    # 4. Compute cosine similarity
-    similarity = cosine_similarity(embedding, reference_embedding)
-
-    # 5. Check against thresholds
-    if similarity >= 0.80:  return "excellent"
-    if similarity >= 0.70:  return "acceptable"
-    if similarity >= 0.60:  return "marginal - consider regeneration"
-    return "failed - must regenerate"
-```
-
-### 6.3 Strict Consistency Prompts
-
-Every video generation prompt includes these mandatory blocks:
-
-**IDENTITY LOCK BLOCK:**
-```
-CRITICAL IDENTITY REQUIREMENTS (VIOLATION = REJECT):
-- Character: {CHARACTER_TAG}
-- Eye color MUST be {EYE_COLOR} — any other color is WRONG
-- Skin tone MUST be {SKIN_TONE} — no lighter, no darker
-- Hair MUST be {HAIR_DESCRIPTION} — same color, length, texture
-- Beauty mark MUST be visible at {MARK_LOCATION}
-- Jewelry: {JEWELRY_DESCRIPTION} — exactly as specified
-- Body type: {BODY_TYPE} — no changes
-- Age appearance: {AGE} years — no younger, no older
-
-ABSOLUTELY PROHIBITED:
-- Different eye color than {EYE_COLOR}
-- Glasses or eyewear of any kind
-- Different hairstyle or hair color
-- Missing distinguishing marks
-- Different body type or proportions
-- Tattoos, piercings, or modifications not in DNA
-- Clean-shaven (if beard specified) or facial hair changes
-```
+**Model:** Gemini 2.5 Flash (vision capabilities)
+**Sample Rate:** 1 frame per second of video
+**Thresholds:** Storyboard 0.75, Video 0.65, Cross-scene std dev 0.10
 
 ---
 
-## 7. Pipeline Orchestration
+## 23. Ultra-Realism Requirements
 
-### 7.1 End-to-End Pipeline Flow
-
-```
-Step 1: INPUT COLLECTION
-  User provides: brand brief, product details, avatar selection,
-  video style, duration, platform
-
-Step 2: SCRIPT GENERATION [Script Agent → Gemini 2.5 Pro]
-  Input: user brief + avatar DNA context
-  Output: structured scene breakdown with dialogue and directions
-
-Step 3: AUDIO GENERATION (FIRST) [Audio Engine → Gemini TTS]
-  Input: full script dialogue + narration styling
-  Output: per-scene audio clips + full continuous voiceover
-  → Measure per-scene audio durations
-
-Step 4: SCENE PROMPT GENERATION [Scene Prompt Agent → Gemini 2.5 Pro]
-  Input: script scenes + character DNA + master template
-  Output: per-scene storyboard prompts + video prompts
-
-Step 5: STORYBOARD GENERATION [Imagen 3]
-  Input: storyboard prompts + character reference images
-  Output: per-scene storyboard frames
-  → Validate character consistency (ArcFace > 0.75)
-  → User review / approval gate (optional)
-
-Step 6: VIDEO GENERATION [Flow / Veo 3 / Veo 2]
-  For each scene:
-    a. Inject character DNA ingredients
-    b. Inject approved storyboard frame as reference
-    c. Inject last frame of previous scene (if not first scene)
-    d. Generate 3 candidates
-    e. Score and select best candidate
-    f. Validate character consistency
-  Output: per-scene video clips (8s each)
-
-Step 7: LIP SYNC (if applicable) [Wav2Lip / SadTalker]
-  Input: video clips with visible speaking faces + audio
-  Output: lip-synced video clips
-
-Step 8: POST-PRODUCTION [FFmpeg + MoviePy]
-  a. Color normalize all clips (histogram matching to Scene 1)
-  b. Apply LUT for unified color grade
-  c. Stitch clips with appropriate transitions
-  d. Sync audio track (voiceover + background music)
-  e. Apply J-cuts and L-cuts at transitions
-  f. Add text overlays / captions
-  g. Apply realism filters (grain, vignette, micro-shake)
-  h. Final render at target resolution and codec
-
-Step 9: QUALITY CHECK
-  a. Full video character consistency scan
-  b. Audio-video sync verification
-  c. Technical quality check (resolution, bitrate, no artifacts)
-  d. Output confidence score
-
-Step 10: DELIVERY
-  Output: final video file + metadata + generation report
-```
-
-### 7.2 Agent Communication Protocol
-
-All agents communicate via a shared state object (Job Context):
-
-```json
-{
-  "job_id": "uuid-v4",
-  "status": "processing",
-  "current_step": "video_generation",
-  "progress": 0.65,
-
-  "input": { /* user's original input */ },
-  "script": { /* Script Agent output */ },
-  "audio": {
-    "full_voiceover": "path/to/full_voiceover.wav",
-    "per_scene": [
-      {"scene": 1, "audio": "path/to/scene1.wav", "duration": 7.2}
-    ]
-  },
-  "scene_prompts": [
-    {"scene": 1, "storyboard_prompt": "...", "video_prompt": "...", "negative_prompt": "..."}
-  ],
-  "storyboards": [
-    {"scene": 1, "image": "path/to/storyboard_1.png", "consistency_score": 0.82}
-  ],
-  "video_clips": [
-    {"scene": 1, "video": "path/to/scene1.mp4", "consistency_score": 0.79, "continuity_score": 0.85}
-  ],
-  "character_dna": { /* full DNA object */ },
-  "final_output": "path/to/final_video.mp4"
-}
-```
-
----
-
-## 8. Video Continuity System (Solving the 8-Second Problem)
-
-### 8.1 The Problem
-
-Flow and Veo generate a maximum of 8 seconds per API call. A typical UGC video is 30-120 seconds, requiring 4-15 clips that must feel like one continuous recording.
-
-### 8.2 Continuity Strategies
-
-#### Strategy A: Last-Frame Chaining (Primary)
-- Extract last frame of clip N → use as reference image for clip N+1
-- Prompt clip N+1 to "continue directly from the previous moment"
-- Generate multiple candidates and select by frame similarity
-
-#### Strategy B: Overlapping Generation
-- Generate clip N to end at a specific composition
-- Generate clip N+1 to begin at a matching composition
-- Create 0.5-1.0s overlap zone, crossfade through it
-
-#### Strategy C: Strategic Scene Breaks
-- Design the script with natural cut points every 8 seconds
-- Use B-roll, text cards, or product shots between talking-head segments
-- Each "break" resets visual continuity requirements
-
-#### Strategy D: Camera Angle Alternation
-- Alternate between 2-3 camera angles per scene
-- Cuts between angles are natural in UGC content (jump cuts)
-- Reduces the need for frame-perfect continuity
-
-### 8.3 Continuity Scoring
-
-```python
-def score_continuity(clip_a, clip_b):
-    last_frame_a = extract_last_frame(clip_a)
-    first_frame_b = extract_first_frame(clip_b)
-
-    # Structural similarity
-    ssim = compute_ssim(last_frame_a, first_frame_b)
-
-    # Perceptual similarity (learned metric)
-    lpips = compute_lpips(last_frame_a, first_frame_b)
-
-    # Color consistency
-    color_diff = compute_color_histogram_distance(last_frame_a, first_frame_b)
-
-    # Character consistency (if faces present)
-    face_sim = compute_face_similarity(last_frame_a, first_frame_b)
-
-    # Weighted score
-    score = (ssim * 0.25) + ((1 - lpips) * 0.25) +
-            ((1 - color_diff) * 0.20) + (face_sim * 0.30)
-
-    return score  # 0.0 to 1.0
-```
-
----
-
-## 9. Ultra-Realism Requirements
-
-### 9.1 Anti-AI-Detection Measures
-
-The output must be indistinguishable from real iPhone-recorded UGC. This requires fighting against common AI generation artifacts:
+### 23.1 Anti-AI-Detection Measures
 
 | AI Tell | Countermeasure |
 |---------|---------------|
-| Plastic/smooth skin | Prompt for "visible pores, micro-imperfections, natural sebaceous activity, fine vellus hair" |
-| Perfect facial symmetry | Include "natural facial asymmetry, one eyebrow slightly higher" in prompts |
-| Uniform perfect teeth | Include "natural tooth variation, not perfectly white" |
-| Over-saturated colors | Post-process: reduce saturation 5-10%, apply muted LUT |
-| No camera imperfections | Add: film grain, chromatic aberration, micro lens distortion, vignette |
-| Too stable footage | Add subtle micro camera shake (1-2px random jitter) |
-| Missing motion blur | Ensure video generation prompt includes "natural motion blur on hand movements" |
-| No compression artifacts | Re-encode at typical social media bitrates (H.265 @ 6-8 Mbps) |
-| Missing EXIF metadata | Inject realistic metadata (iPhone model, location, timestamp) |
-| Unnatural lighting | Prompt for "natural window light with subtle shadows, NOT studio lighting" |
-| Spectral frequency anomalies | Apply noise + compression to shift frequency domain characteristics |
+| Plastic/smooth skin | Prompt: "visible pores, micro-imperfections, vellus hair" |
+| Perfect facial symmetry | Prompt: "natural facial asymmetry" |
+| Uniform perfect teeth | Prompt: "natural tooth variation" |
+| Over-saturated colors | Post-process: reduce saturation 5-10% |
+| No camera imperfections | Add: film grain, chromatic aberration, lens distortion |
+| Too stable footage | Add: subtle micro camera shake (1-2px jitter) |
+| No compression artifacts | Re-encode at social media bitrates |
+| Missing EXIF metadata | Inject realistic metadata (iPhone model, GPS, timestamp) |
 
-### 9.2 Skin Realism Prompt Block
+### 23.2 Skin Realism Block
 
-Appended to EVERY generation prompt:
-
+Appended to every generation prompt:
 ```
 SKIN REALISM (MANDATORY):
-- Visible skin pores across nose, cheeks, and forehead
+- Visible skin pores across nose, cheeks, forehead
 - Subtle natural blemishes: micro-freckles, tiny moles, faint redness
 - Fine vellus hair visible on face contour when backlit
-- Natural oil/moisture sheen on T-zone (forehead, nose, chin)
-- Faint undereye hollows showing natural fatigue/age
+- Natural oil/moisture sheen on T-zone
+- Faint undereye hollows
 - Slight redness around nostrils and lip corners
-- Visible individual eyebrow hairs, not painted-on brows
-- Skin catching light naturally with organic variation in tone
+- Visible individual eyebrow hairs
 - NO porcelain/plastic/airbrushed skin appearance
-- NO unnaturally smooth skin texture
-- NO uniformly colored skin without variation
+```
+
+### 23.3 Post-Processing Filters
+
+| Filter | Implementation | Intensity |
+|--------|---------------|-----------|
+| Film grain | FFmpeg `noise=alls=3:allf=t+u` | 2-4% |
+| Vignette | Gradual edge darkening | 5-10% |
+| Micro shake | Random sub-pixel jitter | 1-2px |
+| Chromatic aberration | RGB channel offset at edges | Subtle |
+| Lens distortion | Barrel distortion filter | 0.5-1% |
+
+---
+
+## 24. Configuration & Environment
+
+### 24.1 Backend Settings (`backend/app/config/settings.py`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
+| `GEMINI_API_KEY` | `None` | Google Gemini API key |
+| `GCS_BUCKET` | `ugcgen-assets` | GCS bucket name |
+| `GCS_PROJECT_ID` | `ugcgen-project` | GCP project ID |
+| `GCS_CREDENTIALS_PATH` | `None` | Path to GCP service account JSON |
+| `CONSISTENCY_MODEL` | `gemini-2.5-flash` | Model for consistency scoring |
+| `CONSISTENCY_THRESHOLD` | `0.75` | Minimum similarity score |
+| `CONSISTENCY_FRAME_SAMPLE_RATE` | `1` | Frames per second to sample |
+| `LOCAL_STORAGE_ROOT` | `frontend/public/uploads` | Local file storage path |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/1` | Celery broker |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/2` | Celery results |
+| `APP_VERSION` | `0.1.0` | Application version |
+| `DEBUG` | `false` | Debug mode |
+| `FRONTEND_URL` | `http://localhost:3000` | Frontend base URL |
+
+### 24.2 Frontend Environment
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `NEXTAUTH_SECRET` | JWT signing secret |
+| `NEXTAUTH_URL` | NextAuth base URL |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `BACKEND_URL` | Backend API base URL |
+| `API_KEY_ENCRYPTION_SECRET` | 32-byte hex key for API key encryption |
+
+---
+
+## 25. Infrastructure
+
+### 25.1 Docker Compose
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_DB: ugcgen
+      POSTGRES_USER: ugcgen
+      POSTGRES_PASSWORD: ugcgen_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes:
+      - redisdata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+```
+
+### 25.2 Local Development
+
+```bash
+# Start infrastructure
+docker compose up -d
+
+# Backend
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# Frontend
+cd frontend
+npm install
+npx prisma db push
+npx prisma generate
+npm run dev
 ```
 
 ---
 
-## 10. Tech Stack
+## 26. Deployment Guide
 
-### 10.1 Backend
+### 26.1 Prerequisites
 
-| Component | Technology |
-|-----------|-----------|
-| Language | Python 3.12+ |
-| Framework | FastAPI |
-| Task Queue | Celery + Redis |
-| Storage | Google Cloud Storage (GCS) |
-| Database | PostgreSQL (job state, avatar registry, API pool config) |
-| Video Processing | FFmpeg 7.x + MoviePy |
-| Face Analysis | InsightFace (ArcFace embeddings) |
-| Lip Sync | Wav2Lip / SadTalker |
-| AI Models | Google Generative AI SDK (`google-genai`) |
+- PostgreSQL 16+
+- Redis 7+
+- Python 3.12+
+- Node.js 20+
+- FFmpeg 7.x
+- Google Cloud account with Gemini API access
 
-### 10.2 AI Model Stack
+### 26.2 Environment Setup
 
-| Function | Primary Model | Fallback Model |
-|----------|--------------|----------------|
-| Script Generation | Gemini 2.5 Pro | Gemini 2.5 Flash |
-| Scene Prompts | Gemini 2.5 Pro | Gemini 2.5 Flash |
-| Storyboard Images | Imagen 3 Standard | Imagen 3 Fast |
-| Video Generation | Flow (ingredients) | Veo 3 → Veo 2 |
-| Voiceover TTS | Gemini TTS | Google Cloud TTS Neural2 |
-| Character DNA Extract | Gemini 2.5 Pro Vision | Gemini 2.5 Flash Vision |
-| Lip Sync | Wav2Lip | SadTalker |
+1. Copy `.env.example` to `.env` in both `backend/` and `frontend/`
+2. Set `GEMINI_API_KEY` (required for all AI features)
+3. Set `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
+4. Set Google OAuth credentials if using Google login
+5. Optionally set GCS credentials for cloud storage
 
-### 10.3 Frontend (Phase 2)
+### 26.3 Database Initialization
 
-| Component | Technology |
-|-----------|-----------|
-| Framework | Next.js 15 |
-| UI | Tailwind CSS + Shadcn/ui |
-| State | Zustand |
-| Video Preview | Video.js |
-| Deployment | Vercel |
-
----
-
-## 11. Data Models
-
-### 11.1 Avatar
-
-```sql
-CREATE TABLE avatars (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    tag VARCHAR(100) UNIQUE NOT NULL,  -- e.g., ARIA_28_F_INDIAN_PERFUME_MODEL
-    character_dna JSONB NOT NULL,
-    reference_sheet_url TEXT,
-    reference_embeddings JSONB,  -- ArcFace embeddings per angle
-    seed INTEGER,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
+```bash
+cd frontend
+npx prisma db push     # Create tables
+npx prisma generate    # Generate Prisma client
 ```
 
-### 11.2 Job
+### 26.4 Verification
 
-```sql
-CREATE TABLE jobs (
-    id UUID PRIMARY KEY,
-    user_id UUID REFERENCES users(id),
-    avatar_id UUID REFERENCES avatars(id),
-    status VARCHAR(20) DEFAULT 'pending',  -- pending, processing, completed, failed
-    input_config JSONB NOT NULL,
-    script JSONB,
-    scene_prompts JSONB,
-    storyboards JSONB,
-    video_clips JSONB,
-    audio_tracks JSONB,
-    final_output_url TEXT,
-    quality_scores JSONB,
-    total_api_cost DECIMAL(10,4),
-    created_at TIMESTAMP DEFAULT NOW(),
-    completed_at TIMESTAMP
-);
-```
+```bash
+# Backend health
+curl http://localhost:8000/health
+# Expected: {"status":"ok","version":"0.1.0"}
 
-### 11.3 API Pool
+# Frontend
+curl http://localhost:3000
+# Expected: 200 OK (or 307 redirect to /login)
 
-```sql
-CREATE TABLE api_keys (
-    id UUID PRIMARY KEY,
-    service VARCHAR(50) NOT NULL,  -- gemini_text, imagen, video_gen, tts
-    model VARCHAR(100) NOT NULL,
-    api_key_encrypted TEXT NOT NULL,
-    pool_type VARCHAR(10) DEFAULT 'primary',  -- primary, fallback
-    rpm_limit INTEGER DEFAULT 60,
-    daily_limit INTEGER,
-    current_usage INTEGER DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'active',  -- active, cooldown, exhausted, disabled
-    cooldown_until TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+# TypeScript
+cd frontend && npx tsc --noEmit
+# Expected: 0 errors
 ```
 
 ---
 
-## 12. Example Character DNAs (Pre-built Avatars)
-
-### 12.1 Aria Sharma (Perfume Brand Muse)
-- **Tag:** `ARIA_28_F_INDIAN_PERFUME_MODEL`
-- **Use case:** Beauty, perfume, skincare, lifestyle UGC
-- **Full DNA:** See Section 4.3.1 above
-
-### 12.2 Rameshwar Singh (Documentary Subject)
-- **Tag:** `RAMESHWAR_75_M_CANCER_PATIENT_INDIAN`
-- **Use case:** Healthcare, documentary, emotional storytelling
-- **Key features:** 75yo male, weathered skin, salt-and-pepper beard, prayer beads, traditional kurta
-- **Locked attributes:** Blue-gray cap with maroon embroidery, green/white prayer beads, no glasses, no modern accessories
-
-### 12.3 Brand Muse (European Perfume Model)
-- **Tag:** `BRAND_MUSE_F_EUROPEAN_PERFUME`
-- **Use case:** Luxury perfume, high-end beauty
-- **Key features:** Light neutral-beige complexion, blue-grey eyes with green rim, chestnut brown curly hair, freckles
-- **Locked attributes:** Calm serene expression, minimal makeup, semi-dewy skin finish
-
----
-
-## 13. Research References
-
-### Character Consistency Papers
-1. Ye et al., "IP-Adapter: Text Compatible Image Prompt Adapter" (2023) — decoupled cross-attention for image conditioning
-2. Wang et al., "InstantID: Zero-shot Identity-Preserving Generation" (2024) — single-image identity preservation
-3. Li et al., "PhotoMaker: Customizing Realistic Human Photos via Stacked ID Embedding" (2024) — multi-reference identity
-4. Huang et al., "ConsistentID: Portrait Generation with Multimodal Fine-Grained Identity Preserving" (2024)
-5. Avrahami et al., "The Chosen One: Consistent Characters in Text-to-Image Diffusion Models" (2024)
-6. Zhou et al., "StoryDiffusion: Consistent Self-Attention for Long-Range Image and Video Generation" (2024)
-7. He et al., "ID-Animator: Zero-Shot Identity-Preserving Human Video Generation" (2024)
-8. Ma et al., "Magic-Me: Identity-Specific Video Customized Diffusion" (2024)
-9. Zhao et al., "VideoAssembler: Identity-Consistent Video Generation with Reference Entities" (2024)
-10. Tewel et al., "ConsiStory: Training-Free Consistent Text-to-Image Generation" (2024)
-
-### Video Continuity & Realism
-11. FFmpeg xfade transition documentation — clip stitching with crossfades
-12. Google Veo 2 API — image-to-video conditioning for frame chaining
-13. Google Flow Ingredients system — multi-reference character anchoring
-14. Wav2Lip — audio-driven lip sync post-processing
-15. InsightFace/ArcFace — face embedding comparison for consistency validation
-
----
-
-## 14. Risk Assessment
+## 27. Risk Assessment
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Character identity drift across clips | HIGH | 6-layer consistency enforcement + face-swap fallback |
-| Flow lacks public API | HIGH | Use Veo 3/2 API with manual ingredient replication; monitor Flow API availability |
-| 8-second clip seams visible | MEDIUM | Last-frame chaining + crossfade transitions + strategic scene breaks |
-| Lip sync quality poor | MEDIUM | Minimize visible speaking faces; use b-roll heavy editing |
-| API rate limits / cost overruns | MEDIUM | Multi-key pool rotation + fallback models + caching |
+| Character identity drift | HIGH | 6-layer consistency + auto-regeneration + reference images |
+| Veo 3.1 extension limited to 720p | MEDIUM | Use extension for draft, generate final at 1080p/4K individually |
+| 148s extension limit | MEDIUM | Break into scenes, extend within each, stitch between |
+| API rate limits / cost | MEDIUM | Multi-key pool rotation + fallback models + fast drafts |
 | AI detection by platforms | LOW | Ultra-realism post-processing + metadata injection |
-| Color inconsistency across clips | MEDIUM | LUT standardization + histogram matching + prompt consistency |
+| Color inconsistency | MEDIUM | LUT standardization + histogram matching |
+| Veo videos expire after 2 days | LOW | Download immediately after generation |
+| Product appearance drift | MEDIUM | Product DNA + reference images + prohibited variations |
+| Lip sync quality | MEDIUM | Prefer Veo 3.1 native audio; minimize visible speaking faces |
+| Intent detection false positives | LOW | Strict exact matching + 5s timeout fallback to CHAT |
 
 ---
 
-## 15. Phase Roadmap
+## 28. Roadmap
 
-### Phase 1: Core Pipeline (MVP)
-- Script generation agent
-- Character DNA system (manual input + reference sheet generation)
-- Storyboard generation (Imagen 3)
-- Video generation (Veo 2 API — since Flow may lack API)
-- Basic voiceover (Gemini TTS)
-- FFmpeg stitching with crossfades
-- Basic color normalization
-- Single API key per service
+### Completed (Current State)
 
-### Phase 2: Consistency & Quality
-- Character DNA Extractor (user uploads → auto DNA)
-- Multi-candidate generation + scoring
-- Face consistency validation (ArcFace)
-- Last-frame chaining for continuity
-- Lip sync integration (Wav2Lip)
-- Ultra-realism post-processing filters
-- API pool management with failover
+- [x] Full-stack application (FastAPI + Next.js 16)
+- [x] 10-step pipeline orchestrator with resumability
+- [x] AI copilot chat with SSE streaming
+- [x] Character DNA extraction and management
+- [x] Product DNA extraction
+- [x] Production Bible assembly
+- [x] 6-step Mass Generator wizard
+- [x] Timeline-based video editor
+- [x] Avatar management with angle validation
+- [x] Library with job history
+- [x] Real-time progress tracking (Redis + SSE + webhooks)
+- [x] Multi-layer consistency enforcement
+- [x] Script editing with selective regeneration
+- [x] Chat stabilization (10 UX fixes)
+- [x] Authentication (Google OAuth + credentials)
+- [x] API key management with encryption
 
-### Phase 3: Scale & Polish
-- Flow API integration (when available)
-- Multiple video outcome types
-- Frontend UI (Next.js)
-- Background music library + mixing
-- Text overlay / caption engine
-- Batch generation
-- Cost tracking and optimization
+### Next Phase — API Integration
 
-### Phase 4: Advanced Features
-- Multi-character scenes
-- Dynamic wardrobe changes within consistency
-- Voice cloning (with consent)
-- A/B testing of video variants
-- Analytics dashboard
-- API for third-party integration
+- [ ] Connect Imagen 4 Ultra API for real storyboard generation
+- [ ] Connect Veo 3.1 API for real video generation
+- [ ] Connect Gemini TTS for real voiceover generation
+- [ ] Implement actual FFmpeg compilation pipeline
+- [ ] Set up Google Cloud Storage for production media
+- [ ] Add Celery workers for background job processing
+- [ ] Implement rate limiting and usage quotas
+
+### Future Phase — Scale & Polish
+
+- [ ] Multi-character scenes with separate DNA ingredients
+- [ ] Voice cloning (with consent)
+- [ ] A/B testing of video variants
+- [ ] Analytics dashboard with cost tracking
+- [ ] Batch generation with cost estimation
+- [ ] LoRA training for open-source model fallback
+- [ ] Multi-language support with dubbing
+- [ ] Webhooks for third-party integration
 
 ---
 
-## 16. Open Questions
+## Appendix A: Pydantic Models (Backend)
 
-1. **Flow API availability:** As of now, Flow is a web UI tool without a public REST API. Verify if API access has launched. If not, Veo 3/2 is the fallback, and the "ingredients" concept must be replicated via reference image conditioning.
+### Enums
 
-2. **Veo 3 API status:** Veo 3 was announced with native audio generation. If available, this could simplify the audio-video pipeline significantly. Verify current API access.
+| Enum | Values |
+|------|--------|
+| `SceneType` | intro, hook, problem, solution, demonstration, unboxing, application, testimonial, cta |
+| `ProductVisibility` | primary, secondary, background, none |
+| `BackgroundSetting` | modern_bedroom, kitchen, office, car, outdoor, custom |
+| `Platform` | instagram_reels, tiktok, youtube_shorts, general |
+| `ReferenceAngle` | front, left_profile, right_profile, back, three_quarter_left, three_quarter_right |
 
-3. **Face swap vs. native consistency:** Should we invest in a face-swap post-processing layer (FaceFusion) as a mandatory step, or rely purely on prompt-based + reference-image consistency?
+### Core Models
 
-4. **LoRA training per avatar:** Should we train character-specific LoRAs for open-source video models as an additional consistency layer? This adds compute cost but significantly improves identity preservation.
+| Model | Key Fields |
+|-------|-----------|
+| `CameraSetup` | body, lens, shot_type, angle, movement, focus |
+| `LightingSetup` | type, direction, color_temp, intensity, key_intensity, fill_intensity, rim |
+| `ScriptScene` | scene_number, scene_type, duration_seconds, dialogue, action, expression, camera, lighting, product_visibility, product_action, audio_notes |
+| `Script` | title, total_duration, scenes[], audio_direction |
+| `StoryboardFrame` | scene_number, variants[] (up to 4), consistency_score |
+| `VideoScene` | scene_number, video_url, first_frame_url, last_frame_url, consistency_score |
+| `AvatarDNA` | face, skin, eyes, hair, body, voice, wardrobe, prohibited_drift |
+| `GenerationRequest` | prompt, avatar_dna, product_name, product_images, background, platform, max_scene_duration, words_per_minute |
 
-5. **Real-time preview:** Should the system offer real-time storyboard preview before committing to video generation (which is expensive)?
+---
+
+## Appendix B: TypeScript Types (Frontend)
+
+### Generation Types (`types/generation.ts`)
+
+| Type | Values |
+|------|--------|
+| `GenerationMode` | ingredients, text, image, extend |
+| `ScriptModel` | gemini-2.5-pro, gemini-2.5-flash |
+| `StoryboardModel` | nano-banana-pro, nano-banana-flash |
+| `VideoModel` | veo-3.1, veo-3.1-fast, veo-2 |
+| `TTSModel` | gemini-tts, google-cloud-tts |
+| `VideoStyle` | testimonial, product-showcase, brand-story, social-reel, comparison-review |
+| `Platform` | instagram-reels, tiktok, youtube-shorts, youtube, custom |
+| `ShotType` | close-up, medium, wide, extreme-close-up, over-shoulder |
+| `CameraAngle` | eye-level, low-angle, high-angle, dutch-angle, birds-eye |
+| `CameraMovement` | static, pan-left/right, tilt-up/down, dolly-in/out, tracking, handheld |
+
+### Editor Types (`types/editor.ts`)
+
+| Type | Description |
+|------|-------------|
+| `TimelineClip` | id, sceneNumber, clipNumber, videoUrl, duration, trimStart, trimEnd, order, crop |
+| `TransitionKind` | 12+ types (fade, crossfade, slide-*, wipe-*, zoom-*, dissolve) |
+| `AudioClip` | id, type, url, duration, volume, startTime, fadeIn, fadeOut |
+| `Caption` | id, text, startTime, endTime, sceneNumber |
+| `CaptionStyle` | font, size, color, bg, position, animation, outline |
+| `ExportSettings` | resolution (720p/1080p/4K), format (mp4/webm), quality (draft/standard/high) |
+
+### Mass Generator Types (`types/mass-generator.ts`)
+
+| Type | Description |
+|------|-------------|
+| `ProductDNA` | product_type, colors, shape, materials, texture, branding_text, distinctive_features |
+| `CreativeBrief` | hook_strategy, pain_point, key_selling_points, emotional_journey, cta_approach |
+| `ProductionBible` | product_dna + avatar_dna + style_config + creative_brief + camera + lighting + realism |
+| `Scene` | scene_number, scene_type, duration, dialogue, action, camera, lighting, audio_notes |
+
+---
+
+## Appendix C: File Counts
+
+| Category | Count |
+|----------|-------|
+| Backend Services | 11 |
+| Backend Agents | 8 |
+| Backend Routers | 9 |
+| Frontend API Routes | 32+ |
+| Frontend Pages | 13 |
+| React Components | 50+ |
+| Zustand Stores | 3 |
+| Type Definition Files | 3 |
+| Database Models | 10 |
+| Pipeline Steps | 10 |
+| **Total Lines of Code** | **~25,000+** |

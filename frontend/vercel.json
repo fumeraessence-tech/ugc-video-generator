@@ -1,0 +1,31 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npx prisma generate && next build",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    }
+  ],
+  "functions": {
+    "src/app/api/jobs/[jobId]/stream/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/chat/[chatId]/messages/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/storyboard/generate/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/video/generate/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/copilot/generate-script/route.ts": {
+      "maxDuration": 120
+    }
+  }
+}

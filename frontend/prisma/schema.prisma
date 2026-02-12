@@ -1,0 +1,258 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Auth Models ───────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+  chats    Chat[]
+  avatars  Avatar[]
+  jobs     Job[]
+  apiKeys  UserApiKey[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─── Chat Models ───────────────────────────────────────────────
+
+model Chat {
+  id        String   @id @default(cuid())
+  title     String?
+  userId    String
+  avatarId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatar   Avatar?   @relation(fields: [avatarId], references: [id], onDelete: SetNull)
+  messages Message[]
+  jobs     Job[]
+
+  @@index([userId])
+  @@map("chats")
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+model Message {
+  id        String      @id @default(cuid())
+  chatId    String
+  role      MessageRole
+  content   String      @db.Text
+  metadata  Json?
+  createdAt DateTime    @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@map("messages")
+}
+
+// ─── Avatar Models ─────────────────────────────────────────────
+
+model Avatar {
+  id                 String   @id @default(cuid())
+  name               String
+  tag                String?
+  uniqueIdentifier   String?  @unique
+  isSystem           Boolean  @default(false)
+  thumbnailUrl       String?
+  referenceSheet     String?
+  referenceImages    String[]
+  dna                Json
+  detailedDNA        Json?
+  referenceAngles    Json?    // Maps angle -> URL: {"front": "/url", "left_profile": "/url", "right_profile": "/url"}
+  angleValidation    Json?    // Tracks required angle coverage: {"complete": true, "missing": [], "coverage": "3/3"}
+  userId             String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chats Chat[]
+  jobs  Job[]
+
+  @@index([userId])
+  @@map("avatars")
+}
+
+// ─── Job / Pipeline Models ─────────────────────────────────────
+
+enum JobStatus {
+  queued
+  running
+  paused
+  completed
+  failed
+  cancelled
+}
+
+enum PipelineStep {
+  script_generation
+  scene_prompts
+  storyboard
+  storyboard_review
+  video_generation
+  video_extension
+  audio_generation
+  post_production
+  quality_check
+  complete
+}
+
+model Job {
+  id                 String       @id @default(cuid())
+  chatId             String
+  avatarId           String?
+  userId             String
+  status             JobStatus    @default(queued)
+  currentStep        PipelineStep @default(script_generation)
+  progress           Int          @default(0)
+  script             Json?
+  storyboard         Json?
+  storyboardScenes   Json[]
+  videoUrls          Json?
+  videoScenes        Json[]
+  audioUrl           String?
+  finalVideoUrl      String?
+  errorMessage       String?      @db.Text
+  metadata           Json?
+  productName        String?
+  productImages      String[]
+  backgroundSetting  String?
+  platform           String?
+  maxSceneDuration   Int          @default(8)
+  wordsPerMinute     Int          @default(150)
+  // Phase 1: Consistency tracking
+  consistencyScores  Json?        // Per-scene consistency scores: [{"scene": 1, "score": 0.87}, ...]
+  regenerationLog    Json[]       // Log of regeneration attempts: [{"scene": 2, "attempt": 2, "reason": "low_score"}]
+  avatarDNA          Json?        // Snapshot of avatar DNA used for this job
+  avatarRefImages    String[]     // Avatar reference images used
+  generationSettings Json?        // Complete snapshot of generation settings
+  // Phase 4: Pipeline resumability & versioning
+  lastCompletedStep  PipelineStep?
+  stepArtifacts      Json?        // Per-step artifact URLs: {"script": {...}, "storyboard": [...]}
+  version            Int          @default(1)
+  parentJobId        String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  chat      Chat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  avatar    Avatar? @relation(fields: [avatarId], references: [id], onDelete: SetNull)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentJob Job?    @relation("JobVersions", fields: [parentJobId], references: [id], onDelete: SetNull)
+  childJobs Job[]   @relation("JobVersions")
+
+  @@index([userId])
+  @@index([chatId])
+  @@index([parentJobId])
+  @@map("jobs")
+}
+
+// ─── API Key Models ────────────────────────────────────────────
+
+enum PoolType {
+  google_ai
+  gcs
+}
+
+enum ApiKeyStatus {
+  active
+  rate_limited
+  exhausted
+  error
+}
+
+model UserApiKey {
+  id             String   @id @default(cuid())
+  userId         String
+  label          String
+  service        PoolType
+  encryptedKey   String   @db.Text
+  iv             String
+  status         ApiKeyStatus @default(active)
+  lastUsedAt     DateTime?
+  errorCount     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, service])
+  @@map("user_api_keys")
+}
+
+model ApiPoolKey {
+  id           String       @id @default(cuid())
+  service      PoolType
+  encryptedKey String       @db.Text
+  iv           String
+  status       ApiKeyStatus @default(active)
+  lastUsedAt   DateTime?
+  errorCount   Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([service, status])
+  @@map("api_pool_keys")
+}
