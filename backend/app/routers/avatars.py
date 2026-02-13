@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 class AvatarDNA(BaseModel):
     """Avatar DNA model."""
+    gender: str = ""
     face: str = ""
     skin: str = ""
     eyes: str = ""
@@ -30,6 +31,8 @@ class AvatarDNA(BaseModel):
     wardrobe: str = ""
     voice: str = ""
     prohibited_drift: str = ""
+    ethnicity: str = ""
+    age_range: str = ""
 
 
 class AvatarCreate(BaseModel):
@@ -80,18 +83,23 @@ async def extract_dna(request: ExtractDNARequest, current_user: AuthUser = Depen
     try:
         if request.image_base64:
             # Extract from base64 image
+            logger.info("DNA extraction from base64 image (%d chars)", len(request.image_base64))
             dna = await vision_service.extract_dna_from_image(
                 image_data=request.image_base64,
-                image_mime_type="image/jpeg",  # Assume JPEG, could be made dynamic
+                image_mime_type="image/jpeg",
             )
         else:
             # Extract from URL
+            logger.info("DNA extraction from URL: %s", request.image_url)
             dna = await vision_service.extract_dna_from_url(request.image_url)
 
-        return ExtractDNAResponse(dna=AvatarDNA(**dna))
+        # Filter out internal fields before returning
+        clean_dna = {k: v for k, v in dna.items() if not k.startswith("_")}
+        logger.info("DNA extracted successfully: %s", list(clean_dna.keys()))
+        return ExtractDNAResponse(dna=AvatarDNA(**clean_dna))
 
     except Exception as e:
-        logger.exception("DNA extraction failed")
+        logger.exception("DNA extraction failed: %s", str(e))
         raise HTTPException(status_code=500, detail=f"DNA extraction failed: {str(e)}") from e
 
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+export const maxDuration = 60; // Allow up to 60s for large images + Gemini Vision
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { session } } = await supabase.auth.getSession();
@@ -28,9 +30,9 @@ export async function POST(request: NextRequest) {
   // Forward to Python backend (uses server-configured API key)
   const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
   try {
-    // Transform images array to the format expected by backend
-    // Backend expects: { image_base64: "..." } or { image_url: "..." }
-    // Frontend sends: { images: [{ data: "base64...", mime_type: "..." }] }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout
+
     const res = await fetch(`${backendUrl}/api/v1/avatars/extract-dna`, {
       method: "POST",
       headers: {
@@ -40,10 +42,14 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         image_base64: firstImage.data,
       }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: "Backend error" }));
+      console.error("[extract-dna] Backend error:", res.status, err);
       return NextResponse.json(
         { error: err.detail ?? "DNA extraction failed" },
         { status: res.status }
@@ -51,9 +57,18 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await res.json();
-    // Backend returns { dna: { face: ..., skin: ..., ... } }
     return NextResponse.json({ dna: data.dna });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[extract-dna] Error:", message);
+
+    if (message.includes("abort")) {
+      return NextResponse.json(
+        { error: "DNA extraction timed out. Try with a smaller image." },
+        { status: 504 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Failed to connect to backend. Make sure the backend server is running." },
       { status: 502 }
