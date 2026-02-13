@@ -309,6 +309,8 @@ class VideoPipeline:
                         duration=request.duration,
                         max_scene_duration=request.max_scene_duration,
                         words_per_minute=request.words_per_minute,
+                        language=getattr(request, 'language', 'en'),
+                        camera_device=getattr(request, 'camera_device', 'iphone_16_pro_max'),
                     )
 
                 script: Script = await self._run_with_retry("script_generation", _gen_script)
@@ -538,10 +540,17 @@ class VideoPipeline:
             # --- 7. Audio Generation ---
             await self._publish(job_id, "audio_generation", 85, "Generating voiceover audio...")
             audio_clips: list[dict[str, str]] = []
+
+            # Build voice config from request
+            voice_config = {
+                "name": getattr(request, 'voice', 'Kore'),
+                "speed": "1.0",
+            }
+
             for scene in script.scenes:
                 if scene.dialogue.strip():
-                    async def _gen_audio(text=scene.dialogue):
-                        return await self._audio_service.generate_tts(text=text)
+                    async def _gen_audio(text=scene.dialogue, vc=voice_config):
+                        return await self._audio_service.generate_tts(text=text, voice_config=vc)
                     audio = await self._run_with_retry(f"audio_{scene.scene_number}", _gen_audio)
                     audio_clips.append(audio)
             result["audio_clips"] = audio_clips
@@ -586,6 +595,28 @@ class VideoPipeline:
                             for a in valid_audio
                         ],
                     }
+
+                # Add background music if enabled
+                music_config = getattr(request, 'music_config', None) or {}
+                if music_config.get("enabled"):
+                    music_category = music_config.get("category")
+                    music_volume = music_config.get("volume", 30)
+                    try:
+                        from app.routers.editor import PRESET_MUSIC
+                        matching = [t for t in PRESET_MUSIC if t["category"] == music_category] if music_category else PRESET_MUSIC
+                        if matching:
+                            if audio_dict is None:
+                                audio_dict = {}
+                            audio_dict.setdefault("music_clips", []).append({
+                                "url": matching[0]["url"],
+                                "start_time": 0,
+                                "volume": music_volume,
+                                "fade_in": 2.0,
+                                "fade_out": 3.0,
+                            })
+                            logger.info("Added background music: %s (volume=%d)", matching[0].get("name", "unknown"), music_volume)
+                    except Exception as e:
+                        logger.warning("Failed to add background music: %s", e)
 
                 compile_result = await self._ffmpeg_service.compile_video(
                     clips=valid_clips,

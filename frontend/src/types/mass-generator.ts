@@ -92,6 +92,81 @@ export type Tone =
   | "asmr_whisper"
   | "hype";
 
+// ============================================================================
+// Language
+// ============================================================================
+
+export type Language =
+  | "en"
+  | "hi"
+  | "ta"
+  | "te"
+  | "bn"
+  | "mr"
+  | "gu"
+  | "kn"
+  | "pa"
+  | "ml";
+
+export const LANGUAGE_OPTIONS: { value: Language; label: string; native: string }[] = [
+  { value: "en", label: "English", native: "English" },
+  { value: "hi", label: "Hindi", native: "हिन्दी" },
+  { value: "ta", label: "Tamil", native: "தமிழ்" },
+  { value: "te", label: "Telugu", native: "తెలుగు" },
+  { value: "bn", label: "Bengali", native: "বাংলা" },
+  { value: "mr", label: "Marathi", native: "मराठी" },
+  { value: "gu", label: "Gujarati", native: "ગુજરાતી" },
+  { value: "kn", label: "Kannada", native: "ಕನ್ನಡ" },
+  { value: "pa", label: "Punjabi", native: "ਪੰਜਾਬੀ" },
+  { value: "ml", label: "Malayalam", native: "മലയാളം" },
+];
+
+// ============================================================================
+// Music
+// ============================================================================
+
+export type MusicCategory = "upbeat" | "calm" | "dramatic" | "corporate" | "fun" | "ambient";
+
+export const MUSIC_CATEGORY_OPTIONS: { value: MusicCategory; label: string }[] = [
+  { value: "upbeat", label: "Upbeat & Energetic" },
+  { value: "calm", label: "Calm & Relaxing" },
+  { value: "dramatic", label: "Dramatic & Cinematic" },
+  { value: "corporate", label: "Corporate & Professional" },
+  { value: "fun", label: "Fun & Playful" },
+  { value: "ambient", label: "Ambient & Atmospheric" },
+];
+
+export interface MusicConfig {
+  enabled: boolean;
+  category: MusicCategory | null;
+  volume: number;
+}
+
+// ============================================================================
+// Camera Device
+// ============================================================================
+
+export type CameraDevice =
+  | "iphone_16_pro_max"
+  | "iphone_16_pro"
+  | "iphone_15_pro"
+  | "iphone_15"
+  | "iphone_14"
+  | "professional";
+
+export const CAMERA_DEVICE_OPTIONS: { value: CameraDevice; label: string; description: string }[] = [
+  { value: "iphone_16_pro_max", label: "iPhone 16 Pro Max", description: "48MP, 24mm f/1.78, 4K 120fps" },
+  { value: "iphone_16_pro", label: "iPhone 16 Pro", description: "48MP, 24mm f/1.78, 4K 120fps" },
+  { value: "iphone_15_pro", label: "iPhone 15 Pro", description: "48MP, 24mm f/1.78, ProRes" },
+  { value: "iphone_15", label: "iPhone 15", description: "48MP, 26mm f/1.6, 4K 60fps" },
+  { value: "iphone_14", label: "iPhone 14", description: "12MP, 26mm f/1.5, classic look" },
+  { value: "professional", label: "Professional (Cinema)", description: "ARRI/RED, 35mm prime, filmic" },
+];
+
+// ============================================================================
+// Creative Brief
+// ============================================================================
+
 export interface CreativeBrief {
   user_input: string;
   hook_strategy: string;

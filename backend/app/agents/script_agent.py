@@ -58,6 +58,7 @@ class ScriptAgent:
         avatar_dna: AvatarDNA | None = None,
         style: str | None = None,
         duration: int = 30,
+        language: str = "en",
     ) -> Script:
         """Generate a complete video script.
 
@@ -70,7 +71,7 @@ class ScriptAgent:
         Returns:
             A validated Script model.
         """
-        user_prompt = self._build_prompt(prompt, avatar_dna, style, duration)
+        user_prompt = self._build_prompt(prompt, avatar_dna, style, duration, language)
 
         if self._client is None:
             logger.warning("No Gemini API key -- ScriptAgent returning mock")
@@ -98,6 +99,7 @@ class ScriptAgent:
         avatar_dna: AvatarDNA | None,
         style: str | None,
         duration: int,
+        language: str = "en",
     ) -> str:
         sections: list[str] = [
             f"Create a {duration}-second UGC video script.",
@@ -107,6 +109,17 @@ class ScriptAgent:
             sections.append(self._inject_dna(avatar_dna))
         if style:
             sections.append(f"Style direction: {style}")
+        if language and language != "en":
+            lang_names = {
+                "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "bn": "Bengali",
+                "mr": "Marathi", "gu": "Gujarati", "kn": "Kannada",
+                "pa": "Punjabi", "ml": "Malayalam",
+            }
+            lang = lang_names.get(language, "English")
+            sections.append(
+                f"LANGUAGE: Write all dialogue in {lang} (native script). "
+                f"Keep brand/product names in English."
+            )
         sections.append(
             f"Target duration: {duration} seconds. "
             "Break into scenes of 3-8 seconds each."

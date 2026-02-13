@@ -17,6 +17,15 @@ from app.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
+IPHONE_CAMERA_SPECS = {
+    "iphone_16_pro_max": {"label": "iPhone 16 Pro Max", "lens": "24mm f/1.78", "sensor": "48MP"},
+    "iphone_16_pro": {"label": "iPhone 16 Pro", "lens": "24mm f/1.78", "sensor": "48MP"},
+    "iphone_15_pro": {"label": "iPhone 15 Pro", "lens": "24mm f/1.78", "sensor": "48MP"},
+    "iphone_15": {"label": "iPhone 15", "lens": "26mm f/1.6", "sensor": "48MP"},
+    "iphone_14": {"label": "iPhone 14", "lens": "26mm f/1.5", "sensor": "12MP"},
+    "professional": {"label": "ARRI Alexa Mini", "lens": "35mm f/1.8", "sensor": "Super 35mm"},
+}
+
 # System prompt with 30+ years of expertise
 COPILOT_SYSTEM_PROMPT = """You are a world-class UGC Video Director with 30+ years of experience creating viral social media content for brands like Nike, Apple, Sephora, and Amazon. You understand psychology, storytelling, and platform-specific best practices.
 
@@ -118,6 +127,8 @@ Be VERY SPECIFIC about what product this is. Do NOT guess a different category!"
         duration: int = 30,
         max_scene_duration: int = 8,
         words_per_minute: int = 150,
+        language: str = "en",
+        camera_device: str = "iphone_16_pro_max",
     ) -> Script:
         """Generate a professional UGC script with WPM validation and image analysis."""
         if not self._client:
@@ -131,6 +142,23 @@ Be VERY SPECIFIC about what product this is. Do NOT guess a different category!"
             product_analysis = await self._analyze_product_images(product_images)
             logger.info(f"Product analysis complete: {product_analysis[:200]}...")
 
+        # Adjust WPM for language — Indian languages have different natural speaking paces
+        # These are approximate natural conversational rates for each language
+        language_wpm = {
+            "en": 150,   # English — natural pace
+            "hi": 120,   # Hindi — slightly slower, longer words
+            "ta": 110,   # Tamil — agglutinative, longer words
+            "te": 115,   # Telugu — moderate pace
+            "bn": 120,   # Bengali — similar to Hindi
+            "mr": 120,   # Marathi — similar to Hindi
+            "gu": 120,   # Gujarati — moderate pace
+            "kn": 110,   # Kannada — agglutinative, longer words
+            "pa": 125,   # Punjabi — slightly faster
+            "ml": 105,   # Malayalam — longest words, slowest natural pace
+        }
+        effective_wpm = language_wpm.get(language, words_per_minute)
+        max_words_per_scene = int((max_scene_duration / 60) * effective_wpm)
+
         # Build user prompt with all requirements
         user_prompt = f"""Create a {duration}-second UGC video script for: {prompt}
 
@@ -140,8 +168,8 @@ REQUIREMENTS:
 - Platform: {platform.value}
 - Total Duration: {duration} seconds
 - Max Scene Duration: {max_scene_duration} seconds
-- Words Per Minute: {words_per_minute} (natural Indian English pace)
-- Max Words Per Scene: {int((max_scene_duration / 60) * words_per_minute)} words
+- Words Per Minute: {effective_wpm} (natural speaking pace for this language)
+- Max Words Per Scene: {max_words_per_scene} words
 
 {f"PRODUCT IMAGE ANALYSIS:\\n{product_analysis}\\n\\nIMPORTANT: Use the product details from the image analysis above. This is a {product_analysis.split()[0] if product_analysis else 'product'}, NOT skincare or any other category." if product_analysis else ""}
 
@@ -154,8 +182,31 @@ BACKGROUND DETAILS:
 PLATFORM SPECS:
 {self._get_platform_specs(platform)}
 
-Generate a complete script with all required fields. Ensure every scene is under {int((max_scene_duration / 60) * words_per_minute)} words.
+Generate a complete script with all required fields. Ensure every scene is under {max_words_per_scene} words.
 """
+
+        # Language directive
+        if language and language != "en":
+            lang_names = {
+                "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "bn": "Bengali",
+                "mr": "Marathi", "gu": "Gujarati", "kn": "Kannada",
+                "pa": "Punjabi", "ml": "Malayalam",
+            }
+            lang = lang_names.get(language, "English")
+            user_prompt += f"""
+
+LANGUAGE REQUIREMENT:
+- Write ALL dialogue in {lang} using its native script.
+- The dialogue must sound natural in {lang}, not translated from English.
+- Keep product names, brand names, and hashtags in English.
+"""
+
+        # Camera device injection
+        camera_specs = IPHONE_CAMERA_SPECS.get(camera_device, IPHONE_CAMERA_SPECS["professional"])
+        camera_note = f"{camera_specs['label']} with {camera_specs['lens']}"
+        if camera_device != "professional":
+            camera_note += ", handheld, natural autofocus, slight camera shake"
+            user_prompt += f"\n\nCAMERA: Use '{camera_note}' as camera_notes for all scenes (NOT ARRI Alexa Mini).\n"
 
         try:
             response = await self._client.models.generate_content(
@@ -178,10 +229,10 @@ Generate a complete script with all required fields. Ensure every scene is under
 
             # Validate WPM constraints
             for scene in script.scenes:
-                if scene.word_count > int((max_scene_duration / 60) * words_per_minute):
+                if scene.word_count > max_words_per_scene:
                     logger.warning(
                         f"Scene {scene.scene_number} exceeds word limit: "
-                        f"{scene.word_count} words (max {int((max_scene_duration / 60) * words_per_minute)})"
+                        f"{scene.word_count} words (max {max_words_per_scene}, {effective_wpm} WPM)"
                     )
 
             return script

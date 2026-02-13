@@ -134,6 +134,10 @@ class GenerationRequest(BaseModel):
     aspect_ratio: str = "9:16"
     max_scene_duration: int = 8  # Gemini 8-second constraint
     words_per_minute: int = 150  # Natural Indian English pace
+    voice: str = "Kore"  # Gemini TTS voice name
+    language: str = "en"  # Script/TTS language code (en, hi, ta, te, bn, mr, gu, kn, pa, ml)
+    music_config: dict | None = None  # {enabled: bool, category: str, volume: int}
+    camera_device: str = "iphone_16_pro_max"  # Camera device for prompt generation
     auto_approve: bool = True  # Automatically approve storyboard (skip manual review)
 
 

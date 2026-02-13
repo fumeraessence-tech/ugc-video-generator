@@ -408,6 +408,10 @@ Guide the user to provide what's missing. Be specific and actionable. Keep it un
                     aspect_ratio: settings?.aspectRatio || "9:16",
                     max_scene_duration: typeof settings?.maxSceneDuration === "number" ? settings.maxSceneDuration : 8,
                     words_per_minute: 150,
+                    voice: typeof settings?.voice === "string" ? settings.voice : "Kore",
+                    language: typeof settings?.language === "string" ? settings.language : "en",
+                    music_config: settings?.musicConfig ?? null,
+                    camera_device: typeof settings?.cameraDevice === "string" ? settings.cameraDevice : "iphone_16_pro_max",
                     attachment_urls: validAttachments,
                   }),
                 });

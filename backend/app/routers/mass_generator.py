@@ -46,6 +46,8 @@ class AssembleBibleRequest(BaseModel):
     style: str = "testimonial"
     tone: str = "excited"
     duration: int = Field(default=30, ge=5, le=180)
+    language: str = "en"
+    camera_device: str = "iphone_16_pro_max"
 
 
 class AssembleBibleResponse(BaseModel):
@@ -79,6 +81,7 @@ class ExpandBriefRequest(BaseModel):
     style: str = "testimonial"
     tone: str = "excited"
     duration: int = 30
+    language: str = "en"
 
 
 class ExpandBriefResponse(BaseModel):
@@ -160,6 +163,7 @@ async def expand_brief(request: ExpandBriefRequest, current_user: AuthUser = Dep
             style=style,
             duration=request.duration,
             tone=tone,
+            language=request.language,
         )
 
         return ExpandBriefResponse(
@@ -209,6 +213,8 @@ async def assemble_bible(request: AssembleBibleRequest, current_user: AuthUser =
             style=style,
             tone=tone,
             duration=request.duration,
+            language=request.language,
+            camera_device=request.camera_device,
         )
 
         return AssembleBibleResponse(

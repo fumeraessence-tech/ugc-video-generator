@@ -191,6 +191,10 @@ class StyleConfig(BaseModel):
         default=None,
         description="Background music style if any"
     )
+    language: str = Field(
+        default="en",
+        description="Language code for script and TTS (en, hi, ta, te, bn, mr, gu, kn, pa, ml)"
+    )
 
 
 class CreativeBrief(BaseModel):
@@ -395,6 +399,21 @@ class ProductionBible(BaseModel):
         sections.append(f"Style: {self.style_config.style.value}")
         sections.append(f"Tone: {self.style_config.tone.value}")
         sections.append(f"Pacing: {self.style_config.pacing}")
+
+        # Language directive
+        if self.style_config.language and self.style_config.language != "en":
+            lang_names = {
+                "hi": "Hindi (Devanagari script)", "ta": "Tamil (Tamil script)",
+                "te": "Telugu (Telugu script)", "bn": "Bengali (Bengali script)",
+                "mr": "Marathi (Devanagari script)", "gu": "Gujarati (Gujarati script)",
+                "kn": "Kannada (Kannada script)", "pa": "Punjabi (Gurmukhi script)",
+                "ml": "Malayalam (Malayalam script)",
+            }
+            lang_name = lang_names.get(self.style_config.language, self.style_config.language)
+            sections.append("\n## LANGUAGE DIRECTIVE")
+            sections.append(f"ALL dialogue MUST be written in {lang_name}.")
+            sections.append(f"Use natural, conversational {lang_name} — NOT translated English.")
+            sections.append("Keep product names and brand names in English/original form.")
 
         # Camera
         sections.append("\n## CAMERA LANGUAGE")

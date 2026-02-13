@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { User, Check, Upload, Loader2, Plus, Volume2, Trash2, ImagePlus, Eye } from "lucide-react";
+import { User, Check, Upload, Loader2, Plus, Volume2, Trash2, ImagePlus, Eye, Globe, Smartphone, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -37,9 +38,15 @@ import {
   PLATFORM_LABELS,
   VIDEO_STYLE_LABELS,
   TONE_LABELS,
+  LANGUAGE_OPTIONS,
+  MUSIC_CATEGORY_OPTIONS,
+  CAMERA_DEVICE_OPTIONS,
   type Platform,
   type VideoStyle,
   type Tone,
+  type Language,
+  type MusicCategory,
+  type CameraDevice,
   type AvatarDNA,
 } from "@/types/mass-generator";
 import { cn } from "@/lib/utils";
@@ -85,6 +92,12 @@ export function AvatarStep() {
     setDuration,
     voice,
     setVoice,
+    language,
+    setLanguage,
+    musicConfig,
+    setMusicConfig,
+    cameraDevice,
+    setCameraDevice,
     prevStep,
     nextStep,
   } = useMassGeneratorStore();
@@ -550,6 +563,85 @@ export function AvatarStep() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Script Language */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Globe className="size-4" />
+              Script Language
+            </Label>
+            <Select value={language} onValueChange={(v) => setLanguage(v as Language)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label} ({opt.native})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Script and voiceover will be generated in this language
+            </p>
+          </div>
+
+          {/* Camera Device */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Smartphone className="size-4" />
+              Recording Device
+            </Label>
+            <Select value={cameraDevice} onValueChange={(v) => setCameraDevice(v as CameraDevice)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CAMERA_DEVICE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <span>{opt.label}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{opt.description}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Background Music */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <Music className="size-4" />
+                Background Music
+              </Label>
+              <Switch
+                checked={musicConfig.enabled}
+                onCheckedChange={(checked) =>
+                  setMusicConfig({ ...musicConfig, enabled: checked })
+                }
+              />
+            </div>
+            {musicConfig.enabled && (
+              <Select
+                value={musicConfig.category || ""}
+                onValueChange={(v) =>
+                  setMusicConfig({ ...musicConfig, category: v as MusicCategory })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Auto-select based on tone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MUSIC_CATEGORY_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </CardContent>
       </Card>

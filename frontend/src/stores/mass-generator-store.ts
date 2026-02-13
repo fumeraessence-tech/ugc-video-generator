@@ -17,6 +17,9 @@ import type {
   Platform,
   VideoStyle,
   Tone,
+  Language,
+  MusicConfig,
+  CameraDevice,
 } from "@/types/mass-generator";
 
 interface MassGeneratorStore extends WizardState {
@@ -24,6 +27,12 @@ interface MassGeneratorStore extends WizardState {
   avatarReferenceImages: string[];
   // Voice selection for TTS
   voice: string;
+  // Language for script & voiceover
+  language: Language;
+  // Background music config
+  musicConfig: MusicConfig;
+  // Camera device selection
+  cameraDevice: CameraDevice;
 
   // Navigation
   setCurrentStep: (step: WizardStep) => void;
@@ -43,6 +52,9 @@ interface MassGeneratorStore extends WizardState {
   setAvatarDNA: (dna: AvatarDNA | null) => void;
   setAvatarReferenceImages: (images: string[]) => void;
   setVoice: (voice: string) => void;
+  setLanguage: (language: Language) => void;
+  setMusicConfig: (config: MusicConfig) => void;
+  setCameraDevice: (device: CameraDevice) => void;
 
   // Style
   setPlatform: (platform: Platform) => void;
@@ -70,7 +82,8 @@ const STEPS: WizardStep[] = ["product", "avatar", "brief", "script", "generate",
 
 const initialState: Pick<MassGeneratorStore,
   'currentStep' | 'productImages' | 'productName' | 'brandName' | 'productDNA' |
-  'selectedAvatarId' | 'avatarDNA' | 'avatarReferenceImages' | 'voice' | 'platform' | 'style' |
+  'selectedAvatarId' | 'avatarDNA' | 'avatarReferenceImages' | 'voice' | 'language' |
+  'musicConfig' | 'cameraDevice' | 'platform' | 'style' |
   'tone' | 'duration' | 'userPrompt' | 'creativeBrief' | 'productionBible' | 'script' |
   'isLoading' | 'error'
 > = {
@@ -83,6 +96,9 @@ const initialState: Pick<MassGeneratorStore,
   avatarDNA: null,
   avatarReferenceImages: [],
   voice: "Kore",
+  language: "en" as const,
+  musicConfig: { enabled: false, category: null, volume: 30 } as MusicConfig,
+  cameraDevice: "iphone_16_pro_max" as CameraDevice,
   platform: "instagram_reels" as const,
   style: "testimonial" as const,
   tone: "excited" as const,
@@ -144,6 +160,9 @@ export const useMassGeneratorStore = create<MassGeneratorStore>()(
       setAvatarReferenceImages: (images) => set({ avatarReferenceImages: images }),
 
       setVoice: (voice) => set({ voice }),
+      setLanguage: (language) => set({ language }),
+      setMusicConfig: (musicConfig) => set({ musicConfig }),
+      setCameraDevice: (cameraDevice) => set({ cameraDevice }),
 
       // Style
       setPlatform: (platform) => set({ platform }),
@@ -185,6 +204,9 @@ export const useMassGeneratorStore = create<MassGeneratorStore>()(
         avatarDNA: state.avatarDNA,
         avatarReferenceImages: state.avatarReferenceImages,
         voice: state.voice,
+        language: state.language,
+        musicConfig: state.musicConfig,
+        cameraDevice: state.cameraDevice,
         platform: state.platform,
         style: state.style,
         tone: state.tone,

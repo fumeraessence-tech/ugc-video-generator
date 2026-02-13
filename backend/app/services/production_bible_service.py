@@ -19,6 +19,8 @@ from app.models.production_bible import (
     StyleConfig,
     CreativeBrief,
     CameraLanguage,
+    CameraBody,
+    CameraMovement,
     LightingBible,
     RealismRules,
     Platform,
@@ -272,6 +274,7 @@ class ProductionBibleService:
         style: VideoStyle,
         duration: int,
         tone: Tone = Tone.EXCITED,
+        language: str = "en",
     ) -> CreativeBrief:
         """Expand a simple user prompt into a detailed creative brief.
 
@@ -296,6 +299,16 @@ class ProductionBibleService:
             tone=tone.value,
             duration=duration,
         )
+
+        # Language directive for brief expansion
+        if language and language != "en":
+            lang_names = {
+                "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "bn": "Bengali",
+                "mr": "Marathi", "gu": "Gujarati", "kn": "Kannada",
+                "pa": "Punjabi", "ml": "Malayalam",
+            }
+            lang = lang_names.get(language, "English")
+            prompt += f"\n\nLANGUAGE: Write the hook_strategy dialogue examples in {lang}. Other brief fields should remain in English."
 
         try:
             response = self._client.models.generate_content(
@@ -355,6 +368,8 @@ class ProductionBibleService:
         style: VideoStyle = VideoStyle.TESTIMONIAL,
         tone: Tone = Tone.EXCITED,
         duration: int = 30,
+        language: str = "en",
+        camera_device: str = "iphone_16_pro_max",
     ) -> ProductionBible:
         """Assemble a complete Production Bible.
 
@@ -380,6 +395,7 @@ class ProductionBibleService:
             style=style,
             duration=duration,
             tone=tone,
+            language=language,
         )
 
         # Step 2: Configure style
@@ -388,10 +404,31 @@ class ProductionBibleService:
             duration_seconds=duration,
             style=style,
             tone=tone,
+            language=language,
         )
 
         # Step 3: Set up camera language (UGC-optimized defaults)
         camera_language = CameraLanguage()
+
+        # Step 3: Set up camera language based on device selection
+        if camera_device and camera_device != "professional":
+            # iPhone camera specs for authentic UGC feel
+            iphone_specs = {
+                "iphone_16_pro_max": {"lens_mm": 24, "body_name": "iPhone 16 Pro Max"},
+                "iphone_16_pro": {"lens_mm": 24, "body_name": "iPhone 16 Pro"},
+                "iphone_15_pro": {"lens_mm": 24, "body_name": "iPhone 15 Pro"},
+                "iphone_15": {"lens_mm": 26, "body_name": "iPhone 15"},
+                "iphone_14": {"lens_mm": 26, "body_name": "iPhone 14"},
+            }
+            specs = iphone_specs.get(camera_device)
+            if specs:
+                camera_language = CameraLanguage(
+                    body=CameraBody.IPHONE_15_PRO,  # Closest enum value
+                    lens_mm=specs["lens_mm"],
+                    handheld_intensity="moderate",
+                    focus_behavior="natural",
+                    default_movement=CameraMovement.SUBTLE_HANDHELD,
+                )
 
         # Step 4: Set up lighting (based on tone)
         lighting_bible = LightingBible()
@@ -441,6 +478,15 @@ class ProductionBibleService:
         """
         logger.info(f"Generating {bible.style_config.duration_seconds}s script")
 
+        # Language-aware WPM for dialogue fluency
+        language_wpm = {
+            "en": 150, "hi": 120, "ta": 110, "te": 115, "bn": 120,
+            "mr": 120, "gu": 120, "kn": 110, "pa": 125, "ml": 105,
+        }
+        lang = getattr(bible.style_config, 'language', 'en') or 'en'
+        effective_wpm = language_wpm.get(lang, 150)
+        max_words_per_scene = int((8 / 60) * effective_wpm)  # 8s max scene
+
         prompt = SCRIPT_GENERATION_PROMPT.format(
             production_bible=bible.master_prompt,
             hook_strategy=bible.creative_brief.hook_strategy,
@@ -452,6 +498,16 @@ class ProductionBibleService:
             style=bible.style_config.style.value,
             platform=bible.style_config.platform.value,
         )
+
+        # Add WPM constraint for dialogue pacing
+        prompt += f"""
+
+DIALOGUE PACING (CRITICAL for natural delivery):
+- Speaking rate: {effective_wpm} words per minute (natural pace for this language)
+- Maximum {max_words_per_scene} words per scene (8-second max)
+- Each scene's word_count MUST respect this limit
+- Dialogue should flow naturally at this pace — not rushed, not dragging
+"""
 
         try:
             response = self._client.models.generate_content(

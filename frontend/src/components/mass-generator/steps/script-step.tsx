@@ -37,6 +37,8 @@ export function ScriptStep() {
     style,
     tone,
     duration,
+    language,
+    cameraDevice,
     script,
     setScript,
     setProductionBible,
@@ -73,6 +75,8 @@ export function ScriptStep() {
             style,
             tone,
             duration,
+            language,
+            camera_device: cameraDevice,
           }),
         }
       );

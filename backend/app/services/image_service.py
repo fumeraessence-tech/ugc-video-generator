@@ -15,6 +15,45 @@ logger = logging.getLogger(__name__)
 # Imagen 4 model - use fast for speed, regular for quality
 IMAGEN_MODEL = "imagen-4.0-fast-generate-001"
 
+# iPhone camera specifications for authentic UGC prompts
+IPHONE_CAMERA_SPECS = {
+    "iphone_16_pro_max": {
+        "label": "iPhone 16 Pro Max",
+        "main_lens": "24mm f/1.78",
+        "sensor": "48MP 1/1.28\" quad-pixel sensor",
+        "features": "Sensor-shift OIS, Photonic Engine, Smart HDR 5, ProRes, Log",
+        "style_note": "Slight computational sharpening, natural skin smoothing, visible lens flare in backlight",
+    },
+    "iphone_16_pro": {
+        "label": "iPhone 16 Pro",
+        "main_lens": "24mm f/1.78",
+        "sensor": "48MP 1/1.28\" quad-pixel sensor",
+        "features": "Sensor-shift OIS, Photonic Engine, Smart HDR 5",
+        "style_note": "Slight computational sharpening, natural skin smoothing, visible lens flare in backlight",
+    },
+    "iphone_15_pro": {
+        "label": "iPhone 15 Pro",
+        "main_lens": "24mm f/1.78",
+        "sensor": "48MP 1/1.22\" quad-pixel sensor",
+        "features": "Sensor-shift OIS, Photonic Engine, Smart HDR 4",
+        "style_note": "Slight computational sharpening, Apple color science warmth, mild lens distortion at edges",
+    },
+    "iphone_15": {
+        "label": "iPhone 15",
+        "main_lens": "26mm f/1.6",
+        "sensor": "48MP 1/1.56\" sensor",
+        "features": "OIS, Photonic Engine, Smart HDR 4",
+        "style_note": "Noticeable computational processing, slightly more noise in low light, warmer tones",
+    },
+    "iphone_14": {
+        "label": "iPhone 14",
+        "main_lens": "26mm f/1.5",
+        "sensor": "12MP 1/1.7\" sensor",
+        "features": "Sensor-shift OIS, Photonic Engine",
+        "style_note": "More visible noise grain, softer details, classic iPhone look, less computational sharpness",
+    },
+}
+
 
 class ImageService:
     """Generate storyboard images using Imagen 4 with avatar + product reference images."""
@@ -35,6 +74,7 @@ class ImageService:
         product_images: list[str] | None = None,
         product_dna: dict | None = None,
         aspect_ratio: str = "9:16",
+        camera_device: str = "iphone_16_pro_max",
     ) -> list[dict[str, str]]:
         """Generate storyboard images with avatar + product reference images.
 
@@ -47,6 +87,7 @@ class ImageService:
             product_images: Product reference images for consistency.
             product_dna: ProductDNA dict with detailed visual attributes.
             aspect_ratio: Target aspect ratio ("9:16", "16:9", "1:1", "4:5"). Default: "9:16"
+            camera_device: Camera device key from IPHONE_CAMERA_SPECS, or empty for cinema look. Default: "iphone_16_pro_max"
 
         Returns:
             List of dicts with scene_number, image_url, prompt.
@@ -171,6 +212,7 @@ class ImageService:
                     product_dna=product_dna,
                     style_notes=script.style_notes,
                     aspect_ratio=aspect_ratio,
+                    camera_device=camera_device,
                 )
 
                 # Generate image with per-scene reference images
@@ -511,6 +553,7 @@ OUTPUT REQUIREMENTS:
         product_dna: dict | None = None,
         style_notes: str | None = None,
         aspect_ratio: str = "9:16",
+        camera_device: str = "iphone_16_pro_max",
     ) -> str:
         """Build a highly detailed prompt including all character, product, camera, lighting details."""
 
@@ -542,31 +585,72 @@ OUTPUT REQUIREMENTS:
             f"Character Action Being Performed: {scene.character_action}",
             f"Emotional Tone: The character is expressing this verbally (NOT as text): \"{scene.dialogue}\"",
             "",
-            "########################################",
-            "# CAMERA TECHNICAL SPECIFICATIONS",
-            "########################################",
-            f"Shot Type: {scene.camera_setup.shot_type}",
-            "  - Close-up: Face fills 60-80% of frame, shows micro-expressions",
-            "  - Medium: Waist-up framing, shows hand gestures and body language",
-            "  - Wide: Full body or environment establishing shot",
-            "  - Over-the-shoulder: Product POV, character partially visible",
-            "",
-            f"Camera Angle: {scene.camera_setup.angle}",
-            "  - Eye-level: Natural, relatable, direct connection",
-            "  - Slight low angle: Empowering, confident",
-            "  - Slight high angle: Intimate, vulnerable",
-            "  - Dutch angle: Dynamic, energetic (use sparingly)",
-            "",
-            f"Camera Movement Style: {scene.camera_setup.movement}",
-            "  - Static: Stable, professional, focused",
-            "  - Handheld: Authentic UGC feel, slight natural shake",
-            "  - Tracking: Following the action smoothly",
-            "",
-            f"Lens Characteristics: {scene.camera_setup.lens}",
-            "  - 35mm: Natural perspective, minimal distortion",
-            "  - 50mm: Portrait-style, flattering compression",
-            "  - 85mm: Telephoto compression, beautiful bokeh",
-            "",
+        ]
+
+        # Camera section - device-aware
+        iphone_specs = IPHONE_CAMERA_SPECS.get(camera_device)
+        if iphone_specs:
+            # iPhone camera prompt for authentic UGC feel
+            parts.extend([
+                "########################################",
+                f"# CAMERA — SHOT ON {iphone_specs['label'].upper()}",
+                "########################################",
+                f"Recording Device: {iphone_specs['label']} ({iphone_specs['sensor']})",
+                f"Lens: {iphone_specs['main_lens']} — wider than cinema lenses, natural perspective",
+                f"Sensor: {iphone_specs['sensor']} — smaller than cinema sensors, inherently DEEPER depth of field",
+                f"Computational Photography: {iphone_specs['features']}",
+                f"  - {iphone_specs['style_note']}",
+                "",
+                f"Shot Type: {scene.camera_setup.shot_type}",
+                f"Camera Angle: {scene.camera_setup.angle}",
+                "",
+                "HANDHELD CHARACTERISTICS (critical for UGC authenticity):",
+                "- Natural micro-shake from hand-holding phone — NOT stabilizer-smooth",
+                "- Occasional slight tilt, not perfectly level — feels REAL and spontaneous",
+                "- Subtle focus hunting when subject moves closer/farther",
+                "- Phase-detection autofocus with natural rack-focus behavior",
+                "",
+                "PHONE CAMERA VISUAL SIGNATURE:",
+                "- Depth of field: Moderate to deep (small phone sensor = deeper DoF than cinema)",
+                "  NOT the razor-thin cinema bokeh — background slightly soft but still readable",
+                "- Mild barrel distortion at frame edges (wide-angle phone lens characteristic)",
+                "- Occasional lens flare from bright light sources (window, sun, ring light)",
+                "- Apple color science: warm, punchy — slightly boosted saturation, lifted shadows",
+                "- Subtle computational sharpening at edges, natural skin detail preservation",
+                "- Clean but with subtle digital compression artifacts distinguishing from cinema",
+                "",
+            ])
+        else:
+            # Professional cinema camera prompt (ARRI/RED)
+            parts.extend([
+                "########################################",
+                "# CAMERA TECHNICAL SPECIFICATIONS",
+                "########################################",
+                f"Shot Type: {scene.camera_setup.shot_type}",
+                "  - Close-up: Face fills 60-80% of frame, shows micro-expressions",
+                "  - Medium: Waist-up framing, shows hand gestures and body language",
+                "  - Wide: Full body or environment establishing shot",
+                "  - Over-the-shoulder: Product POV, character partially visible",
+                "",
+                f"Camera Angle: {scene.camera_setup.angle}",
+                "  - Eye-level: Natural, relatable, direct connection",
+                "  - Slight low angle: Empowering, confident",
+                "  - Slight high angle: Intimate, vulnerable",
+                "  - Dutch angle: Dynamic, energetic (use sparingly)",
+                "",
+                f"Camera Movement Style: {scene.camera_setup.movement}",
+                "  - Static: Stable, professional, focused",
+                "  - Handheld: Authentic UGC feel, slight natural shake",
+                "  - Tracking: Following the action smoothly",
+                "",
+                f"Lens Characteristics: {scene.camera_setup.lens}",
+                "  - 35mm: Natural perspective, minimal distortion",
+                "  - 50mm: Portrait-style, flattering compression",
+                "  - 85mm: Telephoto compression, beautiful bokeh",
+                "",
+            ])
+
+        parts.extend([
             "########################################",
             "# LIGHTING TECHNICAL SPECIFICATIONS",
             "########################################",
@@ -595,7 +679,7 @@ OUTPUT REQUIREMENTS:
             "- Edge/rim light for depth separation",
             "- Background slightly underexposed for subject focus",
             "",
-        ]
+        ])
 
         # Add detailed character DNA if available
         if avatar_dna:

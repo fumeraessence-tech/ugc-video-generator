@@ -18,6 +18,7 @@ export function BriefStep() {
     style,
     tone,
     duration,
+    language,
     userPrompt,
     setUserPrompt,
     creativeBrief,
@@ -61,6 +62,7 @@ export function BriefStep() {
             style,
             tone,
             duration,
+            language,
           }),
         }
       );
