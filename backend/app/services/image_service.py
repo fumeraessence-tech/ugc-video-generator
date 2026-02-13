@@ -512,25 +512,89 @@ OUTPUT REQUIREMENTS:
         style_notes: str | None = None,
         aspect_ratio: str = "9:16",
     ) -> str:
-        """Build a focused prompt with character identity, product details, and scene context.
+        """Build a highly detailed prompt including all character, product, camera, lighting details."""
 
-        Kept concise so Gemini pays maximum attention to reference images.
-        """
+        # Get aspect ratio info for the prompt
+        aspect_info = self._get_aspect_ratio_info(aspect_ratio)
 
-        parts = []
-
-        # --- Scene context (compact) ---
-        parts.extend([
-            f"SCENE: {scene.scene_type} | {scene.location}",
-            f"Description: {scene.description}",
-            f"Action: {scene.character_action}",
-            f"Emotion/Dialogue context (NOT text): \"{scene.dialogue}\"",
-            f"Camera: {scene.camera_setup.shot_type}, {scene.camera_setup.angle}, {scene.camera_setup.lens}",
-            f"Lighting: {scene.lighting_setup.type}, {scene.lighting_setup.direction}, {scene.lighting_setup.color_temp}K",
+        parts = [
+            "Generate a photorealistic storyboard frame for a professional UGC video advertisement.",
             "",
-        ])
+            "########################################",
+            "# ABSOLUTE PROHIBITIONS - NEVER GENERATE",
+            "########################################",
+            "❌ NEVER add ANY text, words, letters, numbers, captions, subtitles, titles, or watermarks",
+            "❌ NEVER add speech bubbles, dialogue boxes, or text overlays of any kind",
+            "❌ NEVER add timestamps, logos, brand names as text, or any written content",
+            "❌ NEVER add closed captions, subtitles, or transcription text",
+            "❌ NEVER render the dialogue/speech as visible text in the image",
+            "❌ The image must be COMPLETELY TEXT-FREE - pure visual content only",
+            "",
+            "########################################",
+            "# SCENE CONTEXT",
+            "########################################",
+            f"Scene Type: {scene.scene_type}",
+            f"Location/Setting: {scene.location}",
+            f"Scene Description: {scene.description}",
+            f"Character Action Being Performed: {scene.character_action}",
+            f"Emotional Tone: The character is expressing this verbally (NOT as text): \"{scene.dialogue}\"",
+            "",
+            "########################################",
+            "# CAMERA TECHNICAL SPECIFICATIONS",
+            "########################################",
+            f"Shot Type: {scene.camera_setup.shot_type}",
+            "  - Close-up: Face fills 60-80% of frame, shows micro-expressions",
+            "  - Medium: Waist-up framing, shows hand gestures and body language",
+            "  - Wide: Full body or environment establishing shot",
+            "  - Over-the-shoulder: Product POV, character partially visible",
+            "",
+            f"Camera Angle: {scene.camera_setup.angle}",
+            "  - Eye-level: Natural, relatable, direct connection",
+            "  - Slight low angle: Empowering, confident",
+            "  - Slight high angle: Intimate, vulnerable",
+            "  - Dutch angle: Dynamic, energetic (use sparingly)",
+            "",
+            f"Camera Movement Style: {scene.camera_setup.movement}",
+            "  - Static: Stable, professional, focused",
+            "  - Handheld: Authentic UGC feel, slight natural shake",
+            "  - Tracking: Following the action smoothly",
+            "",
+            f"Lens Characteristics: {scene.camera_setup.lens}",
+            "  - 35mm: Natural perspective, minimal distortion",
+            "  - 50mm: Portrait-style, flattering compression",
+            "  - 85mm: Telephoto compression, beautiful bokeh",
+            "",
+            "########################################",
+            "# LIGHTING TECHNICAL SPECIFICATIONS",
+            "########################################",
+            f"Primary Light Type: {scene.lighting_setup.type}",
+            "  - Natural window light: Soft, diffused, authentic",
+            "  - Ring light: Even facial illumination, catch lights in eyes",
+            "  - Softbox: Professional, controlled, flattering",
+            "  - Golden hour: Warm, romantic, cinematic",
+            "  - Practical lights: Motivated by visible sources in scene",
+            "",
+            f"Light Direction: {scene.lighting_setup.direction}",
+            "  - Front: Even illumination, minimal shadows",
+            "  - Side (Rembrandt): Dramatic triangle on cheek, depth",
+            "  - Back/rim: Separation from background, hair light",
+            "  - Butterfly: From above, glamorous, slimming shadows",
+            "",
+            f"Color Temperature: {scene.lighting_setup.color_temp}K",
+            "  - 3200K: Warm tungsten, cozy, intimate",
+            "  - 5600K: Neutral daylight, clean, natural",
+            "  - 6500K+: Cool, modern, clinical",
+            "",
+            "Light Quality Requirements:",
+            "- Soft key light with gradual falloff",
+            "- Subtle fill to open shadows (2:1 to 3:1 ratio)",
+            "- Visible catch lights in eyes (1-2 points)",
+            "- Edge/rim light for depth separation",
+            "- Background slightly underexposed for subject focus",
+            "",
+        ]
 
-        # --- Character identity (essential for consistency) ---
+        # Add detailed character DNA if available
         if avatar_dna:
             gender = getattr(avatar_dna, 'gender', '') or ''
             if not gender:
@@ -540,72 +604,204 @@ OUTPUT REQUIREMENTS:
                 elif any(w in combined for w in ['male', 'man', 'masculine']):
                     gender = "MALE"
 
-            ethnicity = getattr(avatar_dna, 'ethnicity', '') or 'as in reference'
-            age_range = getattr(avatar_dna, 'age_range', '') or 'as in reference'
+            ethnicity = getattr(avatar_dna, 'ethnicity', '') or 'as shown in reference'
+            age_range = getattr(avatar_dna, 'age_range', '') or 'as shown in reference'
 
             parts.extend([
-                "CHARACTER IDENTITY (LOCKED — must match reference images exactly):",
-                f"  Gender: {gender} | Ethnicity: {ethnicity} | Age: {age_range}",
-                f"  Face: {avatar_dna.face}",
-                f"  Eyes: {avatar_dna.eyes}",
-                f"  Skin: {avatar_dna.skin}",
-                f"  Hair: {avatar_dna.hair}",
-                f"  Body: {avatar_dna.body}",
-                f"  Wardrobe: {avatar_dna.wardrobe}",
-            ])
-
-            if avatar_dna.prohibited_drift:
-                parts.append(f"  NEVER: {avatar_dna.prohibited_drift}")
-
-            parts.append("")
-
-        # --- Product details ---
-        if product_name:
-            visibility = scene.product_visibility.value if hasattr(scene.product_visibility, 'value') else str(scene.product_visibility)
-            parts.append(f"PRODUCT: {product_name} (visibility: {visibility})")
-
-            if product_dna:
-                dna_bits = []
-                if product_dna.get("product_type"):
-                    dna_bits.append(f"type={product_dna['product_type']}")
-                colors = product_dna.get("colors", {})
-                if colors:
-                    c = [f"{k}:{v}" for k, v in colors.items() if v]
-                    if c:
-                        dna_bits.append(f"colors=[{', '.join(c)}]")
-                for key in ["shape", "texture", "size_category"]:
-                    if product_dna.get(key):
-                        dna_bits.append(f"{key}={product_dna[key]}")
-                if product_dna.get("materials"):
-                    mats = product_dna["materials"]
-                    dna_bits.append(f"materials={', '.join(mats) if isinstance(mats, list) else mats}")
-                if product_dna.get("distinctive_features"):
-                    df = product_dna["distinctive_features"]
-                    dna_bits.append(f"features={', '.join(df) if isinstance(df, list) else df}")
-                if product_dna.get("branding_text"):
-                    bt = product_dna["branding_text"]
-                    dna_bits.append(f"branding={', '.join(bt) if isinstance(bt, list) else bt}")
-                if product_dna.get("visual_description"):
-                    dna_bits.append(f"looks={product_dna['visual_description']}")
-                if product_dna.get("prohibited_variations"):
-                    pv = product_dna["prohibited_variations"]
-                    dna_bits.append(f"NEVER={', '.join(pv) if isinstance(pv, list) else pv}")
-                if dna_bits:
-                    parts.append(f"  Product DNA: {'; '.join(dna_bits)}")
-
-            parts.extend([
-                "  Match product reference images exactly: shape, colors, branding, proportions, materials.",
+                "########################################",
+                "# CHARACTER IDENTITY - LOCKED (DO NOT CHANGE)",
+                "########################################",
+                "This is a SPECIFIC PERSON from the reference images.",
+                "Generate THE SAME INDIVIDUAL - not a similar-looking person.",
+                "",
+                "IMMUTABLE IDENTITY ATTRIBUTES:",
+                f"- Gender: {gender} (LOCKED - do not change)",
+                f"- Ethnicity: {ethnicity} (LOCKED - do not change)",
+                f"- Age Range: {age_range} (LOCKED - do not change)",
+                "",
+                "FACE IDENTITY (MUST BE IDENTICAL TO REFERENCE):",
+                f"- Face Structure: {avatar_dna.face}",
+                "  → Same jawline, cheekbones, forehead as reference",
+                f"- Eye Details: {avatar_dna.eyes}",
+                "  → Same eye shape, color, spacing, eyelid type as reference",
+                "  → Natural moisture, visible iris texture, realistic reflections",
+                "",
+                "SKIN IDENTITY (MUST MATCH REFERENCE EXACTLY):",
+                f"- Skin Description: {avatar_dna.skin}",
+                "  → EXACT same skin tone and undertone as reference",
+                "  → Same texture, pores, and natural features",
+                "  → Same any moles, freckles, beauty marks visible in reference",
+                "- RENDER with: Natural skin texture, visible pores, subsurface scattering",
+                "- RENDER with: Natural color variation (slight redness on cheeks, nose)",
+                "- NEVER: Plastic, waxy, airbrushed, or overly smooth skin",
+                "- NEVER: Change skin tone, lighten, darken, or smooth",
+                "",
+                "HAIR IDENTITY (MUST MATCH REFERENCE):",
+                f"- Hair Description: {avatar_dna.hair}",
+                "  → Same color, style, texture, length as reference",
+                "  → Individual strand visibility, natural highlights",
+                "",
+                "BODY (MUST MATCH REFERENCE):",
+                f"- Body Type: {avatar_dna.body}",
+                "  → Same build and proportions as reference",
+                "",
+                "WARDROBE:",
+                f"- Outfit: {avatar_dna.wardrobe}",
+                "- Fabric texture visible, natural wrinkles",
                 "",
             ])
 
-        # --- Style ---
-        if style_notes:
-            parts.append(f"Style: {style_notes}")
-            parts.append("")
+            if avatar_dna.prohibited_drift:
+                parts.extend([
+                    "CHARACTER DRIFT PROHIBITIONS (STRICTLY ENFORCED):",
+                    f"❌ ABSOLUTELY NEVER: {avatar_dna.prohibited_drift}",
+                    "❌ NEVER change face shape, skin tone, or ethnic features",
+                    "❌ NEVER idealize, beautify, or 'improve' their appearance",
+                    "❌ NEVER generate a different person who looks 'similar'",
+                    "",
+                ])
 
-        # --- Aspect ratio ---
-        aspect_info = self._get_aspect_ratio_info(aspect_ratio)
-        parts.append(f"Aspect ratio: {aspect_info['ratio']} ({aspect_info['orientation']}, {aspect_info['width']}x{aspect_info['height']})")
+        # Add product details with physical reality constraints
+        if product_name:
+            visibility = scene.product_visibility.value if hasattr(scene.product_visibility, 'value') else str(scene.product_visibility)
+
+            parts.extend([
+                "########################################",
+                "# PRODUCT SPECIFICATIONS (MUST MATCH REFERENCE IMAGES)",
+                "########################################",
+                f"Product Name: {product_name}",
+                f"Product Visibility Level: {visibility}",
+                "",
+            ])
+
+            # Inject detailed ProductDNA attributes if available
+            if product_dna:
+                parts.append("DETAILED PRODUCT DNA (MATCH EXACTLY):")
+                if product_dna.get("product_type"):
+                    parts.append(f"  - Product Type: {product_dna['product_type']}")
+                colors = product_dna.get("colors", {})
+                if colors:
+                    color_parts = []
+                    if colors.get("primary"):
+                        color_parts.append(f"Primary: {colors['primary']}")
+                    if colors.get("secondary"):
+                        color_parts.append(f"Secondary: {colors['secondary']}")
+                    if colors.get("accent"):
+                        color_parts.append(f"Accent: {colors['accent']}")
+                    if colors.get("packaging"):
+                        color_parts.append(f"Packaging: {colors['packaging']}")
+                    if color_parts:
+                        parts.append(f"  - Colors: {', '.join(color_parts)}")
+                if product_dna.get("shape"):
+                    parts.append(f"  - Shape: {product_dna['shape']}")
+                if product_dna.get("materials"):
+                    mats = product_dna["materials"]
+                    parts.append(f"  - Materials: {', '.join(mats) if isinstance(mats, list) else mats}")
+                if product_dna.get("texture"):
+                    parts.append(f"  - Surface Texture: {product_dna['texture']}")
+                if product_dna.get("size_category"):
+                    parts.append(f"  - Size: {product_dna['size_category']}")
+                if product_dna.get("proportions"):
+                    parts.append(f"  - Proportions: {product_dna['proportions']}")
+                if product_dna.get("branding_text"):
+                    bt = product_dna["branding_text"]
+                    parts.append(f"  - Branding Text: {', '.join(bt) if isinstance(bt, list) else bt}")
+                if product_dna.get("logo_description"):
+                    parts.append(f"  - Logo: {product_dna['logo_description']}")
+                if product_dna.get("distinctive_features"):
+                    df = product_dna["distinctive_features"]
+                    parts.append(f"  - Distinctive Features: {', '.join(df) if isinstance(df, list) else df}")
+                if product_dna.get("visual_description"):
+                    parts.append(f"  - Visual Description: {product_dna['visual_description']}")
+                if product_dna.get("prohibited_variations"):
+                    pv = product_dna["prohibited_variations"]
+                    parts.append(f"  - PROHIBITED: {', '.join(pv) if isinstance(pv, list) else pv}")
+                parts.append("")
+
+            parts.extend([
+                "PRODUCT RENDERING REQUIREMENTS:",
+                "- EXACT match to reference images: shape, colors, branding, proportions",
+                "- Accurate material rendering (glass, plastic, metal as appropriate)",
+                "- Realistic reflections and refractions",
+                "- Correct scale relative to human hands/body",
+                "- Legible branding if visible in reference (but as image, NOT added text)",
+                "",
+                "########################################",
+                "# PHYSICAL REALITY CONSTRAINTS (CRITICAL)",
+                "########################################",
+                "UNIVERSAL PHYSICAL RULES:",
+                "✓ Gravity applies - objects fall down, liquids flow down",
+                "✓ Hands have exactly 5 fingers each, correct proportions",
+                "✓ Objects have consistent size throughout the scene",
+                "✓ Light sources create shadows in the correct direction",
+                "✓ Reflective surfaces show accurate reflections",
+                "",
+                "NATURAL OBJECT HOLDING (CRITICAL):",
+                "✓ Product MUST be securely gripped in hand, not floating",
+                "✓ Fingers must wrap around the product naturally",
+                "✓ Palm and fingers make contact with product surface",
+                "✓ Product weight is supported - heavier items need firmer grip",
+                "✓ Wrist angle must be comfortable and ergonomic",
+                "✓ Hand position allows the intended action (spray, pour, apply)",
+                "✓ Product should be at a natural, comfortable height relative to body",
+                "❌ NEVER show product floating in mid-air",
+                "❌ NEVER show product at impossible angles",
+                "❌ NEVER show fingers passing through product",
+                "",
+                "HAND ANATOMY RULES:",
+                "✓ Thumb on one side, four fingers on other side of product",
+                "✓ Knuckles visible and naturally positioned",
+                "✓ Fingernails facing correct direction",
+                "✓ Hand size proportional to product (small products = fingertip grip)",
+                "✓ Natural skin folds where fingers bend",
+                "",
+            ])
+
+        # Add style notes
+        if style_notes:
+            parts.extend([
+                "########################################",
+                "# STYLE DIRECTION",
+                "########################################",
+                style_notes,
+                "",
+            ])
+
+        parts.extend([
+            "########################################",
+            "# FINAL OUTPUT REQUIREMENTS (CRITICAL)",
+            "########################################",
+            "IMAGE DIMENSIONS - EXTREMELY IMPORTANT:",
+            f"- Generate image with EXACTLY {aspect_info['ratio']} aspect ratio",
+            f"- Orientation: {aspect_info['orientation']}",
+            f"- Target dimensions: {aspect_info['width']} pixels WIDE × {aspect_info['height']} pixels TALL",
+            f"- Platform: {aspect_info['platform']}",
+            f"- {aspect_info['description']}",
+            f"- ✓ Generate {aspect_info['orientation'].split(' ')[0]} orientation ONLY",
+            "",
+            "QUALITY:",
+            "- Photorealistic rendering quality",
+            "- Professional UGC video frame aesthetic",
+            "",
+            "COMPOSITION:",
+            "- Subject positioned using rule of thirds",
+            "- Clear visual hierarchy (subject > product > background)",
+            "- Appropriate depth of field for shot type",
+            "- Clean, uncluttered background",
+            "",
+            "QUALITY CHECKLIST:",
+            "✓ Photorealistic, NOT illustrated, cartoon, or anime",
+            "✓ Natural skin with texture, pores, and subsurface scattering",
+            "✓ Realistic eye moisture and reflections",
+            "✓ Proper anatomical proportions (correct number of fingers, etc.)",
+            "✓ Physically plausible lighting and shadows",
+            "✓ Product matches reference images exactly",
+            "✓ Action is physically possible and logical",
+            "",
+            "FINAL PROHIBITION REMINDER:",
+            "🚫 ABSOLUTELY NO TEXT, CAPTIONS, SUBTITLES, OR WRITTEN CONTENT OF ANY KIND 🚫",
+            "The image must be completely text-free - pure visual storytelling only.",
+        ])
 
         return "\n".join(parts)
 
