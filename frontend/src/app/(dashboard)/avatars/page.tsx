@@ -8,6 +8,25 @@ import { AvatarCard, type AvatarData } from "@/components/avatars/avatar-card";
 import { AvatarDetailDialog } from "@/components/avatars/avatar-detail-dialog";
 import { CreateAvatarDialog } from "@/components/avatars/create-avatar-dialog";
 
+/** Map snake_case Supabase row to camelCase AvatarData */
+function mapAvatar(a: Record<string, unknown>): AvatarData {
+  // If already camelCase (has thumbnailUrl), return as-is
+  if ("thumbnailUrl" in a) return a as unknown as AvatarData;
+  return {
+    id: a.id as string,
+    name: a.name as string,
+    tag: (a.tag as string) ?? null,
+    isSystem: (a.is_system as boolean) ?? false,
+    thumbnailUrl: (a.thumbnail_url as string) ?? null,
+    referenceSheet: (a.reference_sheet as string) ?? null,
+    referenceImages: (a.reference_images as string[]) ?? [],
+    dna: (a.dna as Record<string, unknown>) ?? {},
+    userId: (a.user_id as string) ?? null,
+    createdAt: a.created_at as string,
+    updatedAt: a.updated_at as string,
+  };
+}
+
 export default function AvatarsPage() {
   const [avatars, setAvatars] = useState<AvatarData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +39,8 @@ export default function AvatarsPage() {
       const res = await fetch("/api/avatars");
       if (res.ok) {
         const data = await res.json();
-        setAvatars(data);
+        // Supabase returns snake_case columns — map to camelCase AvatarData
+        setAvatars(data.map((a: Record<string, unknown>) => mapAvatar(a)));
       }
     } finally {
       setLoading(false);
@@ -46,20 +66,22 @@ export default function AvatarsPage() {
   };
 
   const handleUpdate = (updatedAvatar: AvatarData) => {
+    const mapped = mapAvatar(updatedAvatar as unknown as Record<string, unknown>);
     setAvatars((prev) =>
-      prev.map((a) => (a.id === updatedAvatar.id ? updatedAvatar : a))
+      prev.map((a) => (a.id === mapped.id ? mapped : a))
     );
-    setSelectedAvatar(updatedAvatar);
+    setSelectedAvatar(mapped);
   };
 
   const handleReextract = (updatedAvatar: AvatarData) => {
+    const mapped = mapAvatar(updatedAvatar as unknown as Record<string, unknown>);
     setAvatars((prev) =>
-      prev.map((a) => (a.id === updatedAvatar.id ? updatedAvatar : a))
+      prev.map((a) => (a.id === mapped.id ? mapped : a))
     );
   };
 
   const handleCreated = (avatar: AvatarData) => {
-    setAvatars((prev) => [...prev, avatar]);
+    setAvatars((prev) => [...prev, mapAvatar(avatar as unknown as Record<string, unknown>)]);
   };
 
   const systemAvatars = avatars.filter((a) => a.isSystem);
