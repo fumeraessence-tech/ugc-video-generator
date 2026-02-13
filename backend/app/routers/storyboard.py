@@ -32,6 +32,7 @@ class GenerateStoryboardRequest(BaseModel):
     avatar_reference_images: list[str] = []
     product_images: list[str] = []
     product_name: str | None = None
+    product_dna: dict | None = None
     api_key: str | None = None
     aspect_ratio: str = "9:16"
 
@@ -61,6 +62,7 @@ async def generate_storyboard(
             avatar_reference_images=request.avatar_reference_images,
             product_images=request.product_images,
             product_name=request.product_name,
+            product_dna=request.product_dna,
             aspect_ratio=request.aspect_ratio,
         )
 
@@ -105,12 +107,19 @@ async def regenerate_scene(request: RegenerateSceneRequest, current_user: AuthUs
             total_duration=scene.duration_seconds,
         )
 
+        # Extract angle-aware references from avatar_dna
+        regen_refs_by_angle = None
+        if avatar_dna and avatar_dna.reference_images_by_angle:
+            regen_refs_by_angle = avatar_dna.reference_images_by_angle
+
         storyboard_results = await image_service.generate_storyboard(
             script=mini_script,
             avatar_dna=avatar_dna,
             avatar_reference_images=request.avatar_reference_images,
+            reference_images_by_angle=regen_refs_by_angle,
             product_name=request.product_name,
             product_images=request.product_images,
+            product_dna=request.product_dna,
             aspect_ratio=request.aspect_ratio,
         )
 
@@ -143,13 +152,20 @@ async def regenerate_all(request: RegenerateAllRequest, current_user: AuthUser =
     elif request.avatar_data:
         avatar_dna = AvatarDNA(**request.avatar_data) if isinstance(request.avatar_data, dict) else None
 
+    # Extract angle-aware references from avatar_dna
+    all_refs_by_angle = None
+    if avatar_dna and avatar_dna.reference_images_by_angle:
+        all_refs_by_angle = avatar_dna.reference_images_by_angle
+
     try:
         storyboard_results = await image_service.generate_storyboard(
             script=request.updated_script,
             avatar_dna=avatar_dna,
             avatar_reference_images=request.avatar_reference_images,
+            reference_images_by_angle=all_refs_by_angle,
             product_name=request.product_name,
             product_images=request.product_images,
+            product_dna=request.product_dna,
             aspect_ratio=request.aspect_ratio,
         )
 

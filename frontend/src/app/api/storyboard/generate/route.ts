@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
         avatar_reference_images: avatarReferenceImages,
         product_images: body.productImages || [],
         product_name: body.productName || null,
+        product_dna: body.product_dna || body.productDna || null,
         api_key: apiKey,
         aspect_ratio: body.aspectRatio || "9:16",
       }),

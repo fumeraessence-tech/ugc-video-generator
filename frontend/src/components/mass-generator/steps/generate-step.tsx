@@ -317,6 +317,7 @@ export function GenerateStep() {
             avatar_reference_images: avatarReferenceImages || [],
             product_images: productImages || [],
             product_name: productName || productDNA?.product_name || undefined,
+            product_dna: productDNA || undefined,
             aspect_ratio: aspectRatio,
           }),
         }

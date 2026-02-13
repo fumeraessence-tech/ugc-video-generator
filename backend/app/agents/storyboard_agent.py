@@ -37,8 +37,10 @@ class StoryboardAgent:
         script: Script,
         avatar_data: dict | None = None,
         avatar_reference_images: list[str] = None,
+        reference_images_by_angle: dict[str, str] | None = None,
         product_images: list[str] = None,
         product_name: str | None = None,
+        product_dna: dict | None = None,
         aspect_ratio: str = "9:16",
     ) -> Storyboard:
         """Generate complete storyboard using Imagen 4 with reference image support.
@@ -69,19 +71,27 @@ class StoryboardAgent:
             )
             logger.info(f"Avatar DNA loaded: gender={avatar_dna.gender}, face={avatar_dna.face[:50] if avatar_dna.face else 'N/A'}...")
 
+        # Extract reference_images_by_angle from avatar_dna if not provided directly
+        if not reference_images_by_angle and avatar_dna and avatar_dna.reference_images_by_angle:
+            reference_images_by_angle = avatar_dna.reference_images_by_angle
+
         # Log what we're sending
         logger.info(f"Generating storyboard for {len(script.scenes)} scenes using Imagen 4")
         logger.info(f"Product images: {len(product_images)}, Product name: {product_name}")
         logger.info(f"Avatar reference images: {len(avatar_reference_images)}")
+        logger.info(f"Angle-classified references: {len(reference_images_by_angle) if reference_images_by_angle else 0}")
         logger.info(f"Avatar DNA provided: {avatar_dna is not None}")
+        logger.info(f"Product DNA provided: {product_dna is not None}")
 
         try:
             storyboard_results = await self._image_service.generate_storyboard(
                 script=script,
                 avatar_dna=avatar_dna,
                 avatar_reference_images=avatar_reference_images,
+                reference_images_by_angle=reference_images_by_angle,
                 product_images=product_images,
                 product_name=product_name,
+                product_dna=product_dna,
                 aspect_ratio=aspect_ratio,
             )
 

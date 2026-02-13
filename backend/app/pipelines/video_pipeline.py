@@ -233,6 +233,24 @@ class VideoPipeline:
         if avatar_ref_images:
             logger.info(f"Job {job_id}: Using {len(avatar_ref_images)} avatar reference images for storyboard")
 
+        # Pre-load avatar reference image bytes for consistency scoring
+        avatar_ref_bytes: list[bytes] = []
+        if avatar_ref_images and self._image_service:
+            for ref_url in avatar_ref_images[:4]:
+                img_data = await self._image_service._load_image(ref_url)
+                if img_data and img_data.get("bytes"):
+                    avatar_ref_bytes.append(img_data["bytes"])
+            logger.info(
+                f"Job {job_id}: Pre-loaded {len(avatar_ref_bytes)} avatar ref image bytes "
+                f"for consistency scoring"
+            )
+
+        # Extract angle-aware references from avatar DNA
+        refs_by_angle: dict[str, str] | None = None
+        if avatar_dna and avatar_dna.reference_images_by_angle:
+            refs_by_angle = avatar_dna.reference_images_by_angle
+            logger.info(f"Job {job_id}: Avatar has {len(refs_by_angle)} angle-classified references")
+
         # Step order for resume_from logic
         step_order = [
             "script_generation", "scene_prompts", "storyboard",
@@ -317,23 +335,15 @@ class VideoPipeline:
             # --- 3. Storyboard (with consistency-gated regeneration) ---
             await self._publish(job_id, "storyboard", 30, "Generating storyboard images...")
 
-            # Select optimal references per scene using reference validation
-            scene_ref_images = avatar_ref_images
-            if avatar_dna and avatar_dna.reference_images_by_angle and self._ref_validation_service:
-                # Use angle-aware reference selection
-                first_scene_angle = script.scenes[0].camera_setup.angle if script.scenes else "eye_level"
-                scene_ref_images = self._ref_validation_service.select_best_references_for_scene(
-                    camera_angle=first_scene_angle,
-                    available_refs=avatar_dna.reference_images_by_angle,
-                    max_refs=3,
-                ) or avatar_ref_images
-
+            # Per-scene angle-aware selection now happens inside ImageService
             storyboard = await self._image_service.generate_storyboard(
                 script=script,
                 avatar_dna=avatar_dna,
-                avatar_reference_images=scene_ref_images,
+                avatar_reference_images=avatar_ref_images,
+                reference_images_by_angle=refs_by_angle,
                 product_name=request.product_name,
                 product_images=request.product_images,
+                product_dna=getattr(request, 'product_dna', None),
                 aspect_ratio=request.aspect_ratio,
             )
 
@@ -362,7 +372,7 @@ class VideoPipeline:
                         img_bytes = img_path.read_bytes()
                         score_result = await self._consistency_service.score_character_consistency(
                             image_data=img_bytes,
-                            reference_images=[],
+                            reference_images=avatar_ref_bytes,
                             character_dna=avatar_dna.model_dump() if avatar_dna else None,
                         )
                         score = score_result.get("score", 0.85)
@@ -376,7 +386,7 @@ class VideoPipeline:
                                     f"Scene {scene_num} consistency {score:.0%} < {CONSISTENCY_THRESHOLD:.0%}. "
                                     f"Regenerating (attempt {attempt}/{MAX_REGEN_ATTEMPTS})...",
                                 )
-                                # Regenerate single scene
+                                # Regenerate single scene with per-scene angle-matched refs
                                 regen_result = await self._image_service.generate_storyboard(
                                     script=Script(
                                         title=script.title,
@@ -385,9 +395,11 @@ class VideoPipeline:
                                         style_notes=script.style_notes,
                                     ),
                                     avatar_dna=avatar_dna,
-                                    avatar_reference_images=scene_ref_images,
+                                    avatar_reference_images=avatar_ref_images,
+                                    reference_images_by_angle=refs_by_angle,
                                     product_name=request.product_name,
                                     product_images=request.product_images,
+                                    product_dna=getattr(request, 'product_dna', None),
                                     aspect_ratio=request.aspect_ratio,
                                 )
                                 if regen_result and isinstance(regen_result, list) and regen_result[0].get("image_url"):
@@ -396,7 +408,7 @@ class VideoPipeline:
                                     if new_path.exists():
                                         new_score_result = await self._consistency_service.score_character_consistency(
                                             image_data=new_path.read_bytes(),
-                                            reference_images=[],
+                                            reference_images=avatar_ref_bytes,
                                             character_dna=avatar_dna.model_dump() if avatar_dna else None,
                                         )
                                         new_score = new_score_result.get("score", 0.0)
@@ -618,7 +630,7 @@ class VideoPipeline:
                 if len(storyboard_images) >= 2 and self._consistency_service:
                     cross_scene = await self._consistency_service.check_cross_scene_consistency(
                         scene_images=storyboard_images,
-                        reference_images=storyboard_images[:1],
+                        reference_images=avatar_ref_bytes if avatar_ref_bytes else storyboard_images[:1],
                     )
                     quality_score = cross_scene.get("consistency_score", 0.95)
                     logger.info("Job %s: Cross-scene consistency score: %.2f", job_id, quality_score)
@@ -672,6 +684,11 @@ class VideoPipeline:
             avatar_dna = AvatarDNA(**context["avatar_dna"]) if context.get("avatar_dna") else None
             scene_numbers = context.get("scene_numbers", [])
 
+            # Extract angle-aware references from avatar DNA
+            step_refs_by_angle = None
+            if avatar_dna and avatar_dna.reference_images_by_angle:
+                step_refs_by_angle = avatar_dna.reference_images_by_angle
+
             if scene_numbers:
                 # Regenerate specific scenes only
                 scenes_to_regen = [s for s in script.scenes if s.scene_number in scene_numbers]
@@ -688,8 +705,10 @@ class VideoPipeline:
                 script=partial_script,
                 avatar_dna=avatar_dna,
                 avatar_reference_images=context.get("avatar_reference_images", []),
+                reference_images_by_angle=step_refs_by_angle,
                 product_name=context.get("product_name"),
                 product_images=context.get("product_images", []),
+                product_dna=context.get("product_dna"),
                 aspect_ratio=context.get("aspect_ratio", "9:16"),
             )
             result["storyboard"] = storyboard

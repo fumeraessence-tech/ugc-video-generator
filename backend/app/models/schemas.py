@@ -126,6 +126,7 @@ class GenerationRequest(BaseModel):
     avatar_reference_images: list[str] = Field(default_factory=list)  # Avatar images for storyboard base
     product_name: str | None = None
     product_images: list[str] = Field(default_factory=list)
+    product_dna: dict | None = None  # ProductDNA dict for detailed product consistency
     background_setting: str | BackgroundSetting = "modern_bedroom"
     platform: str | Platform = "instagram_reels"
     style: str | None = None
@@ -263,6 +264,7 @@ class RegenerateSceneRequest(BaseModel):
     avatar_reference_images: list[str] = Field(default_factory=list)
     product_images: list[str] = Field(default_factory=list)
     product_name: str | None = None
+    product_dna: dict | None = None
     api_key: str | None = None
     aspect_ratio: str = "9:16"
 
@@ -276,6 +278,7 @@ class RegenerateAllRequest(BaseModel):
     avatar_reference_images: list[str] = Field(default_factory=list)
     product_images: list[str] = Field(default_factory=list)
     product_name: str | None = None
+    product_dna: dict | None = None
     api_key: str | None = None
     aspect_ratio: str = "9:16"
 

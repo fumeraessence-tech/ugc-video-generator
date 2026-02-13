@@ -400,6 +400,7 @@ Guide the user to provide what's missing. Be specific and actionable. Keep it un
                     avatar_reference_images: Array.isArray(settings?.avatarReferenceImages) ? settings.avatarReferenceImages : [],  // Avatar images for storyboard base
                     product_name: typeof settings?.productName === "string" ? settings.productName : null,
                     product_images: Array.isArray(settings?.productImages) ? settings.productImages : [],
+                    product_dna: settings?.productDNA || null,
                     background_setting: typeof settings?.backgroundSetting === "string" ? settings.backgroundSetting : "modern_bedroom",
                     platform: typeof settings?.platform === "string" ? settings.platform : "instagram_reels",
                     style: settings?.videoStyle || "professional",

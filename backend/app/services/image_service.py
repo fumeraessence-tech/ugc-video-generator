@@ -30,8 +30,10 @@ class ImageService:
         script: Script,
         avatar_dna: AvatarDNA | None = None,
         avatar_reference_images: list[str] | None = None,
+        reference_images_by_angle: dict[str, str] | None = None,
         product_name: str | None = None,
         product_images: list[str] | None = None,
+        product_dna: dict | None = None,
         aspect_ratio: str = "9:16",
     ) -> list[dict[str, str]]:
         """Generate storyboard images with avatar + product reference images.
@@ -40,8 +42,10 @@ class ImageService:
             script: The video script with scenes.
             avatar_dna: Character DNA for detailed prompts.
             avatar_reference_images: Avatar/character reference images for consistency.
+            reference_images_by_angle: Angle-to-URL mapping for per-scene ref selection.
             product_name: Product name for the prompt.
             product_images: Product reference images for consistency.
+            product_dna: ProductDNA dict with detailed visual attributes.
             aspect_ratio: Target aspect ratio ("9:16", "16:9", "1:1", "4:5"). Default: "9:16"
 
         Returns:
@@ -68,30 +72,112 @@ class ImageService:
         logger.info(f"   Product name: {product_name}")
         logger.info(f"   Aspect ratio: {aspect_ratio}")
 
-        # Load all reference images once
-        avatar_images_loaded = await self._load_all_images(avatar_reference_images[:2])
+        # Pre-load all unique reference image URLs into a cache to avoid repeated I/O
+        _image_cache: dict[str, dict | None] = {}
+
+        async def _load_cached(url: str) -> dict | None:
+            if url not in _image_cache:
+                _image_cache[url] = await self._load_image(url)
+            return _image_cache[url]
+
+        # Pre-load all angle-based reference URLs
+        all_ref_urls: list[str] = list(avatar_reference_images[:4])
+        if reference_images_by_angle:
+            for url in reference_images_by_angle.values():
+                if url not in all_ref_urls:
+                    all_ref_urls.append(url)
+
+        for url in all_ref_urls:
+            await _load_cached(url)
+
+        # Pre-load product images
         product_images_loaded = await self._load_all_images(product_images[:3])
 
-        logger.info(f"✅ Loaded {len(avatar_images_loaded)} avatar images, {len(product_images_loaded)} product images")
+        # Default avatar images (used when no angle-based selection available)
+        default_avatar_loaded = [
+            _image_cache[url] for url in avatar_reference_images[:4]
+            if url in _image_cache and _image_cache[url] and _image_cache[url].get("bytes")
+        ]
+
+        # --- Image load failure detection ---
+        total_avatar_requested = len(avatar_reference_images[:4])
+        total_avatar_loaded = len(default_avatar_loaded)
+        total_product_requested = len(product_images[:3])
+        total_product_loaded = len(product_images_loaded)
+
+        failed_avatar_urls = [
+            url for url in avatar_reference_images[:4]
+            if url not in _image_cache or not _image_cache.get(url) or not _image_cache[url].get("bytes")
+        ]
+        failed_product_urls = [
+            url for url in product_images[:3]
+            if url not in [img.get("_source_url") for img in product_images_loaded]
+        ]
+
+        if failed_avatar_urls:
+            logger.error(
+                f"🚨 AVATAR REF LOAD FAILURES: {len(failed_avatar_urls)}/{total_avatar_requested} failed! "
+                f"Failed URLs: {failed_avatar_urls}"
+            )
+        if total_avatar_requested > 0 and total_avatar_loaded == 0:
+            logger.error(
+                "🚨 CRITICAL: ZERO avatar reference images loaded! "
+                "Character consistency will be IMPOSSIBLE. "
+                "Check that avatar image URLs are accessible."
+            )
+
+        if total_product_requested > 0 and total_product_loaded == 0:
+            logger.error(
+                "🚨 CRITICAL: ZERO product reference images loaded! "
+                "Product consistency will be IMPOSSIBLE. "
+                "Check that product image URLs are accessible."
+            )
+
+        logger.info(
+            f"✅ Pre-loaded refs: "
+            f"avatar {total_avatar_loaded}/{total_avatar_requested}, "
+            f"product {total_product_loaded}/{total_product_requested}, "
+            f"cache total {len(_image_cache)} unique URLs"
+        )
 
         results: list[dict[str, str]] = []
 
         for scene in script.scenes:
             try:
+                # Per-scene angle-aware reference selection
+                if reference_images_by_angle:
+                    scene_ref_urls = self._select_scene_references(
+                        camera_angle=scene.camera_setup.angle,
+                        reference_images_by_angle=reference_images_by_angle,
+                        fallback_images=avatar_reference_images[:4],
+                        max_refs=4,
+                    )
+                    scene_avatar_images = [
+                        _image_cache[url] for url in scene_ref_urls
+                        if url in _image_cache and _image_cache[url] and _image_cache[url].get("bytes")
+                    ]
+                    logger.info(
+                        f"🎯 Scene {scene.scene_number}: angle='{scene.camera_setup.angle}', "
+                        f"selected {len(scene_avatar_images)} angle-matched refs from {len(scene_ref_urls)} URLs"
+                    )
+                else:
+                    scene_avatar_images = default_avatar_loaded
+
                 # Build comprehensive prompt for this scene
                 prompt = self._build_comprehensive_prompt(
                     scene=scene,
                     avatar_dna=avatar_dna,
                     product_name=product_name,
+                    product_dna=product_dna,
                     style_notes=script.style_notes,
                     aspect_ratio=aspect_ratio,
                 )
 
-                # Generate image with reference images
+                # Generate image with per-scene reference images
                 image_url = await self._generate_scene_image(
                     scene_number=scene.scene_number,
                     prompt=prompt,
-                    avatar_images=avatar_images_loaded,
+                    avatar_images=scene_avatar_images,
                     product_images=product_images_loaded,
                     aspect_ratio=aspect_ratio,
                 )
@@ -128,26 +214,39 @@ class ImageService:
 
         # Build reference image parts for the prompt
         reference_parts = []
+        avatar_parts_count = 0
+        product_parts_count = 0
 
         # Add avatar reference images
         for i, img_data in enumerate(avatar_images):
-            if img_data.get("bytes"):
+            if img_data and img_data.get("bytes"):
                 ref_part = types.Part.from_bytes(
                     data=img_data["bytes"],
-                    mime_type=img_data["mime_type"]
+                    mime_type=img_data.get("mime_type", "image/jpeg")
                 )
                 reference_parts.append(ref_part)
-                logger.info(f"   Added avatar reference {i+1}")
+                avatar_parts_count += 1
+                logger.info(f"   Added avatar reference {i+1} ({len(img_data['bytes'])} bytes, {img_data.get('mime_type', 'image/jpeg')})")
+            else:
+                logger.warning(f"   Skipped avatar reference {i+1} — no bytes")
 
         # Add product reference images
         for i, img_data in enumerate(product_images):
-            if img_data.get("bytes"):
+            if img_data and img_data.get("bytes"):
                 ref_part = types.Part.from_bytes(
                     data=img_data["bytes"],
-                    mime_type=img_data["mime_type"]
+                    mime_type=img_data.get("mime_type", "image/jpeg")
                 )
                 reference_parts.append(ref_part)
-                logger.info(f"   Added product reference {i+1}")
+                product_parts_count += 1
+                logger.info(f"   Added product reference {i+1} ({len(img_data['bytes'])} bytes, {img_data.get('mime_type', 'image/jpeg')})")
+            else:
+                logger.warning(f"   Skipped product reference {i+1} — no bytes")
+
+        logger.info(
+            f"📎 Scene {scene_number}: {len(reference_parts)} total ref parts "
+            f"({avatar_parts_count} avatar + {product_parts_count} product)"
+        )
 
         # If we have reference images, use Gemini's multimodal generation
         if reference_parts:
@@ -155,12 +254,16 @@ class ImageService:
                 scene_number=scene_number,
                 prompt=prompt,
                 reference_parts=reference_parts,
-                num_avatar_refs=len(avatar_images),
-                num_product_refs=len(product_images),
+                num_avatar_refs=avatar_parts_count,
+                num_product_refs=product_parts_count,
                 aspect_ratio=aspect_ratio,
             )
         else:
-            # No reference images - use text-only Imagen
+            # No reference images available - use text-only Imagen as last resort
+            logger.error(
+                f"🚨 Scene {scene_number}: ZERO reference images available! "
+                "Falling back to text-only Imagen — character/product consistency WILL NOT WORK."
+            )
             return await self._generate_text_only(
                 scene_number=scene_number,
                 prompt=prompt,
@@ -176,162 +279,65 @@ class ImageService:
         num_product_refs: int = 0,
         aspect_ratio: str = "9:16",
     ) -> str:
-        """Generate image using Gemini with reference images for character/product consistency.
+        """Generate image using Gemini with reference images for character/product consistency."""
 
-        Uses gemini-2.5-flash-image which supports:
-        - Up to 14 reference images total
-        - Up to 5 human reference images for character consistency
-        - Up to 6 object reference images for product fidelity
-        """
-
-        # Get aspect ratio dimensions and description
-        aspect_info = self._get_aspect_ratio_info(aspect_ratio)
-
-        # Build explicit character identity anchoring
-        character_anchor = ""
-        if num_avatar_refs > 0:
-            character_anchor = f"""
-╔══════════════════════════════════════════════════════════════════╗
-║  ⚠️  CRITICAL: CHARACTER IDENTITY LOCK - READ THIS FIRST  ⚠️      ║
-╠══════════════════════════════════════════════════════════════════╣
-║  The first {num_avatar_refs} image(s) show THE EXACT PERSON who   ║
-║  MUST appear in your generated image.                            ║
-║                                                                    ║
-║  THIS IS THE SAME HUMAN BEING - NOT A SIMILAR PERSON              ║
-║  Copy their face EXACTLY: same eyes, nose, lips, bone structure   ║
-║  Copy their skin EXACTLY: same tone, texture, any marks/features  ║
-║  Copy their hair EXACTLY: same color, style, texture, length      ║
-║  Copy their ethnicity EXACTLY: do not change their race/heritage  ║
-║                                                                    ║
-║  If the reference shows a specific person, generate THAT PERSON   ║
-║  Do NOT create a "similar looking" person - it must be THEM       ║
-╚══════════════════════════════════════════════════════════════════╝
-"""
-
-        # Build the prompt with explicit reference image roles
-        ref_instructions = []
+        # Build a CONCISE, focused prompt. Shorter = model pays more attention to images.
+        ref_labels = []
         ref_idx = 1
-
         if num_avatar_refs > 0:
-            ref_instructions.append("CHARACTER REFERENCE IMAGES (IDENTITY SOURCE):")
             for i in range(num_avatar_refs):
-                ref_instructions.append(f"  • Image {ref_idx}: This is THE PERSON to generate. Clone their exact appearance.")
+                ref_labels.append(f"Image {ref_idx}: CHARACTER reference (clone this person exactly)")
                 ref_idx += 1
-            ref_instructions.append("")
-
         if num_product_refs > 0:
-            ref_instructions.append("PRODUCT REFERENCE IMAGES:")
             for i in range(num_product_refs):
-                ref_instructions.append(f"  • Image {ref_idx}: Product reference - match exact shape, colors, branding, details")
+                ref_labels.append(f"Image {ref_idx}: PRODUCT reference (match exactly)")
                 ref_idx += 1
-            ref_instructions.append("")
 
-        ref_section = "\n".join(ref_instructions) if ref_instructions else "No reference images provided."
+        ref_section = "\n".join(ref_labels)
 
-        generation_prompt = f"""{character_anchor}
-###########################################
-# 🎯 TASK: Generate storyboard frame with EXACT character match
-###########################################
-
+        generation_prompt = f"""REFERENCE IMAGES:
 {ref_section}
 
-###########################################
-# CHARACTER CONSISTENCY - HIGHEST PRIORITY
-###########################################
-The generated image MUST show THE EXACT SAME PERSON from the reference images.
+TASK: Generate a photorealistic UGC video storyboard frame.
 
-FACE IDENTITY (CRITICAL - DO NOT DEVIATE):
-✓ SAME facial bone structure (jawline, cheekbones, forehead shape)
-✓ SAME eyes (exact shape, color, spacing, eyelid type)
-✓ SAME nose (bridge width, tip shape, nostril size)
-✓ SAME lips (exact shape, fullness, proportions)
-✓ SAME eyebrows (shape, thickness, arch)
-✓ SAME skin tone and undertone (warm/cool)
-✓ SAME any distinctive features (moles, freckles, dimples)
+IDENTITY RULES (MANDATORY):
+- The person MUST be the EXACT same individual from the character reference images
+- Clone their face identically: same bone structure, eyes, nose, lips, skin tone, hair
+- Do NOT generate a similar-looking person. It must be THEM — recognizable instantly
+- Do NOT change ethnicity, age, gender, or skin tone
+- Match the product from product references exactly: same shape, colors, branding
 
-THIS IS NOT A SUGGESTION - IT IS A REQUIREMENT:
-- Do NOT generate a "similar looking" person
-- Do NOT "improve" or "idealize" their features
-- Do NOT change their ethnicity, age, or gender
-- Do NOT smooth out their skin texture or features
-- The person in output must be RECOGNIZABLE as the same individual
-
-###########################################
-# PRODUCT CONSISTENCY
-###########################################
-The product MUST match the product reference images EXACTLY:
-✓ Same shape, proportions, and form factor
-✓ Same colors (exact hex values, not similar)
-✓ Same branding, logos, and text placement
-✓ Same materials (glass, plastic, metal textures)
-✓ Correct scale relative to human hands
-
-###########################################
-# SCENE DETAILS
-###########################################
+SCENE:
 {prompt}
 
-###########################################
-# PHYSICAL REALISM REQUIREMENTS
-###########################################
-NATURAL OBJECT HANDLING:
-✓ Products held with natural, secure grip
-✓ Fingers wrap around objects realistically
-✓ Weight is visually apparent in how items are held
-✓ No floating, flying, or magically suspended objects
-✓ Hands have exactly 5 fingers with correct proportions
+OUTPUT REQUIREMENTS:
+- Aspect ratio: {aspect_ratio}
+- Photorealistic, authentic UGC aesthetic — NOT illustrated, cartoon, or AI-looking
+- Natural skin texture with pores, natural lighting with real shadows
+- Hands must have exactly 5 fingers, products held naturally
+- ZERO text, words, captions, watermarks, or written content of any kind"""
 
-###########################################
-# IMAGE SPECIFICATIONS
-###########################################
-DIMENSIONS (MUST FOLLOW):
-✓ Aspect ratio: EXACTLY {aspect_info['ratio']}
-✓ Orientation: {aspect_info['orientation']}
-✓ Dimensions: {aspect_info['width']}x{aspect_info['height']} pixels
-✓ Platform: {aspect_info['platform']}
-
-QUALITY:
-✓ Photorealistic - NOT illustrated, cartoon, or stylized
-✓ Professional UGC video frame aesthetic
-✓ Cinematic lighting with natural shadows
-✓ Natural skin texture with visible pores
-
-###########################################
-# 🚫 ABSOLUTE PROHIBITION: NO TEXT 🚫
-###########################################
-Generate ZERO text, words, letters, numbers, captions, or watermarks.
-The image must be completely text-free.
-
-###########################################
-# FINAL REMINDER: CHARACTER IDENTITY
-###########################################
-Before generating, verify:
-→ Is this THE SAME PERSON from the reference images?
-→ Would someone recognize this as the same individual?
-→ Are all facial features IDENTICAL (not similar)?
-
-Generate the image now - same person, same product, zero text."""
-
-        # Try multiple image generation models in order of preference
         models_to_try = [
-            "gemini-2.5-flash-image",           # Best for speed + character consistency
-            "gemini-3-pro-image-preview",       # Best for quality + complex instructions
-            "gemini-2.0-flash-exp-image-generation",  # Fallback
+            "gemini-2.5-flash-image",
+            "gemini-3-pro-image-preview",
+            "gemini-2.0-flash-exp-image-generation",
         ]
 
         for model_name in models_to_try:
             try:
-                logger.info(f"🎨 Trying {model_name} for scene {scene_number} with {len(reference_parts)} reference images")
+                logger.info(
+                    f"🎨 Trying {model_name} for scene {scene_number} "
+                    f"with {len(reference_parts)} ref images "
+                    f"({num_avatar_refs} avatar, {num_product_refs} product), "
+                    f"prompt length: {len(generation_prompt)} chars"
+                )
 
-                # Build content with reference images first, then prompt
                 content_parts = reference_parts + [types.Part.from_text(text=generation_prompt)]
 
-                # Configure with aspect ratio and person generation
                 config = types.GenerateContentConfig(
                     response_modalities=["IMAGE", "TEXT"],
                     image_config=types.ImageConfig(
                         aspect_ratio=aspect_ratio,
-                        person_generation="ALLOW_ALL",
                     ),
                 )
 
@@ -341,7 +347,6 @@ Generate the image now - same person, same product, zero text."""
                     config=config,
                 )
 
-                # Extract generated image from response
                 if response.candidates and len(response.candidates) > 0:
                     candidate = response.candidates[0]
                     if candidate.content and candidate.content.parts:
@@ -355,11 +360,10 @@ Generate the image now - same person, same product, zero text."""
                 logger.warning(f"❌ {model_name} returned no image for scene {scene_number}")
 
             except Exception as e:
-                logger.warning(f"❌ {model_name} failed: {e}")
+                logger.warning(f"❌ {model_name} failed for scene {scene_number}: {e}")
                 continue
 
-        # All models failed, fall back to text-only Imagen
-        logger.warning(f"All Gemini models failed for scene {scene_number}, falling back to Imagen")
+        logger.error(f"🚨 ALL Gemini models failed for scene {scene_number} — falling back to text-only Imagen (NO reference images)")
         return await self._generate_text_only(scene_number, prompt, aspect_ratio)
 
     async def _generate_text_only(
@@ -442,97 +446,91 @@ Generate the image now - same person, same product, zero text."""
         }
         return aspect_ratios.get(aspect_ratio, aspect_ratios["9:16"])
 
+    def _select_scene_references(
+        self,
+        camera_angle: str,
+        reference_images_by_angle: dict[str, str],
+        fallback_images: list[str],
+        max_refs: int = 4,
+    ) -> list[str]:
+        """Select best reference images for a scene based on its camera angle."""
+        CAMERA_TO_REFERENCE_MAP: dict[str, list[str]] = {
+            "eye_level": ["front", "three_quarter_left", "three_quarter_right"],
+            "eye level": ["front", "three_quarter_left", "three_quarter_right"],
+            "front": ["front", "three_quarter_left", "three_quarter_right"],
+            "side": ["left_profile", "right_profile", "three_quarter_left"],
+            "side_left": ["left_profile", "three_quarter_left", "front"],
+            "side_right": ["right_profile", "three_quarter_right", "front"],
+            "high": ["front", "three_quarter_left", "three_quarter_right"],
+            "high_angle": ["front", "three_quarter_left", "three_quarter_right"],
+            "low": ["front", "three_quarter_left", "three_quarter_right"],
+            "low_angle": ["front", "three_quarter_left", "three_quarter_right"],
+            "dutch": ["front", "three_quarter_left", "three_quarter_right"],
+            "dutch_angle": ["front", "three_quarter_left", "three_quarter_right"],
+            "overhead": ["front", "back"],
+            "behind": ["back", "three_quarter_left", "three_quarter_right"],
+            "three_quarter": ["three_quarter_left", "three_quarter_right", "front"],
+            "slight_low": ["front", "three_quarter_left", "three_quarter_right"],
+            "slight_high": ["front", "three_quarter_left", "three_quarter_right"],
+        }
+
+        normalized = camera_angle.lower().replace(" ", "_").replace("-", "_")
+        preferred = CAMERA_TO_REFERENCE_MAP.get(
+            normalized, ["front", "three_quarter_left", "three_quarter_right"]
+        )
+
+        selected: list[str] = []
+        for angle in preferred:
+            url = reference_images_by_angle.get(angle)
+            if url and url not in selected:
+                selected.append(url)
+                if len(selected) >= max_refs:
+                    return selected
+
+        # Fill remaining with other available angles
+        for url in reference_images_by_angle.values():
+            if url not in selected:
+                selected.append(url)
+                if len(selected) >= max_refs:
+                    return selected
+
+        # Supplement with fallback images
+        for url in fallback_images:
+            if url not in selected:
+                selected.append(url)
+                if len(selected) >= max_refs:
+                    return selected
+
+        return selected
+
     def _build_comprehensive_prompt(
         self,
         scene: ScriptScene,
         avatar_dna: AvatarDNA | None,
         product_name: str | None,
-        style_notes: str | None,
+        product_dna: dict | None = None,
+        style_notes: str | None = None,
         aspect_ratio: str = "9:16",
     ) -> str:
-        """Build a highly detailed prompt including all character, product, camera, lighting details."""
+        """Build a focused prompt with character identity, product details, and scene context.
 
-        # Get aspect ratio info for the prompt
-        aspect_info = self._get_aspect_ratio_info(aspect_ratio)
+        Kept concise so Gemini pays maximum attention to reference images.
+        """
 
-        parts = [
-            "Generate a photorealistic storyboard frame for a professional UGC video advertisement.",
-            "",
-            "########################################",
-            "# ABSOLUTE PROHIBITIONS - NEVER GENERATE",
-            "########################################",
-            "❌ NEVER add ANY text, words, letters, numbers, captions, subtitles, titles, or watermarks",
-            "❌ NEVER add speech bubbles, dialogue boxes, or text overlays of any kind",
-            "❌ NEVER add timestamps, logos, brand names as text, or any written content",
-            "❌ NEVER add closed captions, subtitles, or transcription text",
-            "❌ NEVER render the dialogue/speech as visible text in the image",
-            "❌ The image must be COMPLETELY TEXT-FREE - pure visual content only",
-            "",
-            "########################################",
-            "# SCENE CONTEXT",
-            "########################################",
-            f"Scene Type: {scene.scene_type}",
-            f"Location/Setting: {scene.location}",
-            f"Scene Description: {scene.description}",
-            f"Character Action Being Performed: {scene.character_action}",
-            f"Emotional Tone: The character is expressing this verbally (NOT as text): \"{scene.dialogue}\"",
-            "",
-            "########################################",
-            "# CAMERA TECHNICAL SPECIFICATIONS",
-            "########################################",
-            f"Shot Type: {scene.camera_setup.shot_type}",
-            "  - Close-up: Face fills 60-80% of frame, shows micro-expressions",
-            "  - Medium: Waist-up framing, shows hand gestures and body language",
-            "  - Wide: Full body or environment establishing shot",
-            "  - Over-the-shoulder: Product POV, character partially visible",
-            "",
-            f"Camera Angle: {scene.camera_setup.angle}",
-            "  - Eye-level: Natural, relatable, direct connection",
-            "  - Slight low angle: Empowering, confident",
-            "  - Slight high angle: Intimate, vulnerable",
-            "  - Dutch angle: Dynamic, energetic (use sparingly)",
-            "",
-            f"Camera Movement Style: {scene.camera_setup.movement}",
-            "  - Static: Stable, professional, focused",
-            "  - Handheld: Authentic UGC feel, slight natural shake",
-            "  - Tracking: Following the action smoothly",
-            "",
-            f"Lens Characteristics: {scene.camera_setup.lens}",
-            "  - 35mm: Natural perspective, minimal distortion",
-            "  - 50mm: Portrait-style, flattering compression",
-            "  - 85mm: Telephoto compression, beautiful bokeh",
-            "",
-            "########################################",
-            "# LIGHTING TECHNICAL SPECIFICATIONS",
-            "########################################",
-            f"Primary Light Type: {scene.lighting_setup.type}",
-            "  - Natural window light: Soft, diffused, authentic",
-            "  - Ring light: Even facial illumination, catch lights in eyes",
-            "  - Softbox: Professional, controlled, flattering",
-            "  - Golden hour: Warm, romantic, cinematic",
-            "  - Practical lights: Motivated by visible sources in scene",
-            "",
-            f"Light Direction: {scene.lighting_setup.direction}",
-            "  - Front: Even illumination, minimal shadows",
-            "  - Side (Rembrandt): Dramatic triangle on cheek, depth",
-            "  - Back/rim: Separation from background, hair light",
-            "  - Butterfly: From above, glamorous, slimming shadows",
-            "",
-            f"Color Temperature: {scene.lighting_setup.color_temp}K",
-            "  - 3200K: Warm tungsten, cozy, intimate",
-            "  - 5600K: Neutral daylight, clean, natural",
-            "  - 6500K+: Cool, modern, clinical",
-            "",
-            "Light Quality Requirements:",
-            "- Soft key light with gradual falloff",
-            "- Subtle fill to open shadows (2:1 to 3:1 ratio)",
-            "- Visible catch lights in eyes (1-2 points)",
-            "- Edge/rim light for depth separation",
-            "- Background slightly underexposed for subject focus",
-            "",
-        ]
+        parts = []
 
-        # Add detailed character DNA if available
+        # --- Scene context (compact) ---
+        parts.extend([
+            f"SCENE: {scene.scene_type} | {scene.location}",
+            f"Description: {scene.description}",
+            f"Action: {scene.character_action}",
+            f"Emotion/Dialogue context (NOT text): \"{scene.dialogue}\"",
+            f"Camera: {scene.camera_setup.shot_type}, {scene.camera_setup.angle}, {scene.camera_setup.lens}",
+            f"Lighting: {scene.lighting_setup.type}, {scene.lighting_setup.direction}, {scene.lighting_setup.color_temp}K",
+            "",
+        ])
+
+        # --- Character identity (essential for consistency) ---
         if avatar_dna:
             gender = getattr(avatar_dna, 'gender', '') or ''
             if not gender:
@@ -542,319 +540,74 @@ Generate the image now - same person, same product, zero text."""
                 elif any(w in combined for w in ['male', 'man', 'masculine']):
                     gender = "MALE"
 
-            ethnicity = getattr(avatar_dna, 'ethnicity', '') or 'as shown in reference'
-            age_range = getattr(avatar_dna, 'age_range', '') or 'as shown in reference'
+            ethnicity = getattr(avatar_dna, 'ethnicity', '') or 'as in reference'
+            age_range = getattr(avatar_dna, 'age_range', '') or 'as in reference'
 
             parts.extend([
-                "########################################",
-                "# ⚠️ CHARACTER IDENTITY - LOCKED (DO NOT CHANGE)",
-                "########################################",
-                "This is a SPECIFIC PERSON from the reference images.",
-                "Generate THE SAME INDIVIDUAL - not a similar-looking person.",
-                "",
-                "IMMUTABLE IDENTITY ATTRIBUTES:",
-                f"- Gender: {gender} (LOCKED - do not change)",
-                f"- Ethnicity: {ethnicity} (LOCKED - do not change)",
-                f"- Age Range: {age_range} (LOCKED - do not change)",
-                "",
-                "FACE IDENTITY (MUST BE IDENTICAL TO REFERENCE):",
-                f"- Face Structure: {avatar_dna.face}",
-                "  → Same jawline, cheekbones, forehead as reference",
-                f"- Eye Details: {avatar_dna.eyes}",
-                "  → Same eye shape, color, spacing, eyelid type as reference",
-                "  → Natural moisture, visible iris texture, realistic reflections",
-                "",
-                "SKIN IDENTITY (MUST MATCH REFERENCE EXACTLY):",
-                f"- Skin Description: {avatar_dna.skin}",
-                "  → EXACT same skin tone and undertone as reference",
-                "  → Same texture, pores, and natural features",
-                "  → Same any moles, freckles, beauty marks visible in reference",
-                "- RENDER with: Natural skin texture, visible pores, subsurface scattering",
-                "- RENDER with: Natural color variation (slight redness on cheeks, nose)",
-                "- NEVER: Plastic, waxy, airbrushed, or overly smooth skin",
-                "- NEVER: Change skin tone, lighten, darken, or smooth",
-                "",
-                "HAIR IDENTITY (MUST MATCH REFERENCE):",
-                f"- Hair Description: {avatar_dna.hair}",
-                "  → Same color, style, texture, length as reference",
-                "  → Individual strand visibility, natural highlights",
-                "",
-                "BODY (MUST MATCH REFERENCE):",
-                f"- Body Type: {avatar_dna.body}",
-                "  → Same build and proportions as reference",
-                "",
-                "WARDROBE:",
-                f"- Outfit: {avatar_dna.wardrobe}",
-                "- Fabric texture visible, natural wrinkles",
-                "",
+                "CHARACTER IDENTITY (LOCKED — must match reference images exactly):",
+                f"  Gender: {gender} | Ethnicity: {ethnicity} | Age: {age_range}",
+                f"  Face: {avatar_dna.face}",
+                f"  Eyes: {avatar_dna.eyes}",
+                f"  Skin: {avatar_dna.skin}",
+                f"  Hair: {avatar_dna.hair}",
+                f"  Body: {avatar_dna.body}",
+                f"  Wardrobe: {avatar_dna.wardrobe}",
             ])
 
             if avatar_dna.prohibited_drift:
-                parts.extend([
-                    "CHARACTER DRIFT PROHIBITIONS (STRICTLY ENFORCED):",
-                    f"❌ ABSOLUTELY NEVER: {avatar_dna.prohibited_drift}",
-                    "❌ NEVER change face shape, skin tone, or ethnic features",
-                    "❌ NEVER idealize, beautify, or 'improve' their appearance",
-                    "❌ NEVER generate a different person who looks 'similar'",
-                    "",
-                ])
+                parts.append(f"  NEVER: {avatar_dna.prohibited_drift}")
 
-        # Add product details with physical reality constraints
+            parts.append("")
+
+        # --- Product details ---
         if product_name:
             visibility = scene.product_visibility.value if hasattr(scene.product_visibility, 'value') else str(scene.product_visibility)
+            parts.append(f"PRODUCT: {product_name} (visibility: {visibility})")
 
-            # Get physical reality constraints for this product
-            reality_constraints = self._get_physical_reality_constraints(
-                product_name=product_name,
-                action=scene.character_action,
-            )
+            if product_dna:
+                dna_bits = []
+                if product_dna.get("product_type"):
+                    dna_bits.append(f"type={product_dna['product_type']}")
+                colors = product_dna.get("colors", {})
+                if colors:
+                    c = [f"{k}:{v}" for k, v in colors.items() if v]
+                    if c:
+                        dna_bits.append(f"colors=[{', '.join(c)}]")
+                for key in ["shape", "texture", "size_category"]:
+                    if product_dna.get(key):
+                        dna_bits.append(f"{key}={product_dna[key]}")
+                if product_dna.get("materials"):
+                    mats = product_dna["materials"]
+                    dna_bits.append(f"materials={', '.join(mats) if isinstance(mats, list) else mats}")
+                if product_dna.get("distinctive_features"):
+                    df = product_dna["distinctive_features"]
+                    dna_bits.append(f"features={', '.join(df) if isinstance(df, list) else df}")
+                if product_dna.get("branding_text"):
+                    bt = product_dna["branding_text"]
+                    dna_bits.append(f"branding={', '.join(bt) if isinstance(bt, list) else bt}")
+                if product_dna.get("visual_description"):
+                    dna_bits.append(f"looks={product_dna['visual_description']}")
+                if product_dna.get("prohibited_variations"):
+                    pv = product_dna["prohibited_variations"]
+                    dna_bits.append(f"NEVER={', '.join(pv) if isinstance(pv, list) else pv}")
+                if dna_bits:
+                    parts.append(f"  Product DNA: {'; '.join(dna_bits)}")
 
             parts.extend([
-                "########################################",
-                "# PRODUCT SPECIFICATIONS (MUST MATCH REFERENCE IMAGES)",
-                "########################################",
-                f"Product Name: {product_name}",
-                f"Product Visibility Level: {visibility}",
-                "",
-                "PRODUCT RENDERING REQUIREMENTS:",
-                "- EXACT match to reference images: shape, colors, branding, proportions",
-                "- Accurate material rendering (glass, plastic, metal as appropriate)",
-                "- Realistic reflections and refractions",
-                "- Correct scale relative to human hands/body",
-                "- Legible branding if visible in reference (but as image, NOT added text)",
+                "  Match product reference images exactly: shape, colors, branding, proportions, materials.",
                 "",
             ])
 
-            if reality_constraints:
-                parts.extend([
-                    "########################################",
-                    "# PHYSICAL REALITY CONSTRAINTS (CRITICAL)",
-                    "########################################",
-                    "The following physical laws and product logic MUST be respected:",
-                    "",
-                ])
-                parts.extend(reality_constraints)
-                parts.append("")
-
-        # Add style notes
+        # --- Style ---
         if style_notes:
-            parts.extend([
-                "########################################",
-                "# STYLE DIRECTION",
-                "########################################",
-                style_notes,
-                "",
-            ])
+            parts.append(f"Style: {style_notes}")
+            parts.append("")
 
-        parts.extend([
-            "########################################",
-            "# FINAL OUTPUT REQUIREMENTS (CRITICAL)",
-            "########################################",
-            "IMAGE DIMENSIONS - EXTREMELY IMPORTANT:",
-            f"- Generate image with EXACTLY {aspect_info['ratio']} aspect ratio",
-            f"- Orientation: {aspect_info['orientation']}",
-            f"- Target dimensions: {aspect_info['width']} pixels WIDE × {aspect_info['height']} pixels TALL",
-            f"- Platform: {aspect_info['platform']}",
-            f"- {aspect_info['description']}",
-            f"- ✓ Generate {aspect_info['orientation'].split(' ')[0]} orientation ONLY",
-            "",
-            "QUALITY:",
-            "- Photorealistic rendering quality",
-            "- Professional UGC video frame aesthetic",
-            "",
-            "COMPOSITION:",
-            "- Subject positioned using rule of thirds",
-            "- Clear visual hierarchy (subject > product > background)",
-            "- Appropriate depth of field for shot type",
-            "- Clean, uncluttered background",
-            "",
-            "QUALITY CHECKLIST:",
-            "✓ Photorealistic, NOT illustrated, cartoon, or anime",
-            "✓ Natural skin with texture, pores, and subsurface scattering",
-            "✓ Realistic eye moisture and reflections",
-            "✓ Proper anatomical proportions (correct number of fingers, etc.)",
-            "✓ Physically plausible lighting and shadows",
-            "✓ Product matches reference images exactly",
-            "✓ Action is physically possible and logical",
-            "",
-            "FINAL PROHIBITION REMINDER:",
-            "🚫 ABSOLUTELY NO TEXT, CAPTIONS, SUBTITLES, OR WRITTEN CONTENT OF ANY KIND 🚫",
-            "The image must be completely text-free - pure visual storytelling only.",
-        ])
+        # --- Aspect ratio ---
+        aspect_info = self._get_aspect_ratio_info(aspect_ratio)
+        parts.append(f"Aspect ratio: {aspect_info['ratio']} ({aspect_info['orientation']}, {aspect_info['width']}x{aspect_info['height']})")
 
         return "\n".join(parts)
-
-    def _get_physical_reality_constraints(
-        self,
-        product_name: str,
-        action: str,
-    ) -> list[str]:
-        """Generate physical reality constraints based on product type and action."""
-
-        constraints = []
-        product_lower = product_name.lower() if product_name else ""
-        action_lower = action.lower() if action else ""
-
-        # Universal constraints for all products
-        constraints.extend([
-            "UNIVERSAL PHYSICAL RULES:",
-            "✓ Gravity applies - objects fall down, liquids flow down",
-            "✓ Hands have exactly 5 fingers each, correct proportions",
-            "✓ Objects have consistent size throughout the scene",
-            "✓ Light sources create shadows in the correct direction",
-            "✓ Reflective surfaces show accurate reflections",
-            "",
-            "NATURAL OBJECT HOLDING (CRITICAL):",
-            "✓ Product MUST be securely gripped in hand, not floating",
-            "✓ Fingers must wrap around the product naturally",
-            "✓ Palm and fingers make contact with product surface",
-            "✓ Product weight is supported - heavier items need firmer grip",
-            "✓ Wrist angle must be comfortable and ergonomic",
-            "✓ Hand position allows the intended action (spray, pour, apply)",
-            "✓ Product should be at a natural, comfortable height relative to body",
-            "✓ If holding near face: product at chin-to-eye level, arm bent naturally",
-            "✓ If showing product: hold at chest height with relaxed arm",
-            "❌ NEVER show product floating in mid-air",
-            "❌ NEVER show product at impossible angles",
-            "❌ NEVER show product magically suspended without proper grip",
-            "❌ NEVER show fingers passing through product",
-            "❌ NEVER show product flying or in unnatural motion",
-            "❌ NEVER show awkward wrist angles that would be painful",
-            "",
-            "HAND ANATOMY RULES:",
-            "✓ Thumb on one side, four fingers on other side of product",
-            "✓ Knuckles visible and naturally positioned",
-            "✓ Fingernails facing correct direction",
-            "✓ Hand size proportional to product (small products = fingertip grip)",
-            "✓ Natural skin folds where fingers bend",
-            "",
-        ])
-
-        # Perfume/Fragrance specific constraints
-        if any(word in product_lower for word in ['perfume', 'fragrance', 'cologne', 'eau de', 'spray', 'mist']):
-            constraints.extend([
-                "PERFUME/FRAGRANCE PHYSICAL RULES:",
-                "✓ Cap MUST be removed/off before any spraying action",
-                "✓ Only ONE cap per bottle (never show double caps)",
-                "✓ Spray nozzle must be visible and properly oriented when spraying",
-                "✓ Spray mist travels AWAY from nozzle, disperses naturally",
-                "✓ Finger must be on the spray actuator when spraying",
-                "✓ Bottle orientation: nozzle points toward spray target",
-                "❌ NEVER show spraying with cap still on",
-                "❌ NEVER show spray coming from wrong direction",
-                "❌ NEVER show bottle held upside down while spraying",
-                "",
-                "PERFUME BOTTLE HOLDING POSITIONS:",
-                "✓ Showing bottle: Hold upright in palm, fingers wrapped around sides",
-                "✓ Preparing to spray: Index finger on actuator, bottle at 45° angle",
-                "✓ Spraying on wrist: Bottle 6-8 inches from wrist, nozzle aimed at wrist",
-                "✓ Spraying on neck: Bottle at shoulder height, angled toward neck",
-                "✓ Admiring bottle: Hold at eye level, slight tilt to show design",
-                "✓ Bottle should rest in hand naturally, base supported by palm",
-                "❌ NEVER show bottle floating or suspended in air",
-                "❌ NEVER show bottle at awkward 90° angles to wrist",
-                "",
-            ])
-
-        # Skincare/Cream/Lotion specific constraints
-        if any(word in product_lower for word in ['cream', 'lotion', 'moisturizer', 'serum', 'oil', 'balm', 'butter']):
-            constraints.extend([
-                "SKINCARE/CREAM PHYSICAL RULES:",
-                "✓ Jar lid must be removed before scooping product",
-                "✓ Tube must be squeezed for product to come out",
-                "✓ Pump must be pressed down for product dispensing",
-                "✓ Dropper must be squeezed for serum to release",
-                "✓ Product amount should be realistic (pea-sized to quarter-sized)",
-                "✓ Product texture should match type (thick for cream, liquid for serum)",
-                "❌ NEVER show product magically appearing without opening container",
-                "❌ NEVER show impossible amounts of product",
-                "",
-            ])
-
-        # Makeup specific constraints
-        if any(word in product_lower for word in ['lipstick', 'mascara', 'foundation', 'concealer', 'eyeshadow', 'blush', 'makeup']):
-            constraints.extend([
-                "MAKEUP PHYSICAL RULES:",
-                "✓ Lipstick must be twisted up before application",
-                "✓ Mascara wand must be removed from tube before use",
-                "✓ Compact must be opened to access product",
-                "✓ Brush/applicator must contact product before skin",
-                "✓ Application follows natural makeup technique",
-                "❌ NEVER show closed products being used",
-                "❌ NEVER show product on face without applicator contact",
-                "",
-            ])
-
-        # Beverage specific constraints
-        if any(word in product_lower for word in ['drink', 'beverage', 'water', 'juice', 'soda', 'coffee', 'tea', 'bottle']):
-            constraints.extend([
-                "BEVERAGE PHYSICAL RULES:",
-                "✓ Cap/lid must be removed before drinking",
-                "✓ Liquid pours downward due to gravity",
-                "✓ Condensation appears on cold beverages",
-                "✓ Liquid level decreases when drinking",
-                "✓ Proper grip on container for drinking",
-                "❌ NEVER show drinking through closed cap",
-                "❌ NEVER show liquid defying gravity",
-                "",
-            ])
-
-        # Food specific constraints
-        if any(word in product_lower for word in ['food', 'snack', 'chocolate', 'candy', 'bar', 'chip']):
-            constraints.extend([
-                "FOOD PHYSICAL RULES:",
-                "✓ Wrapper/packaging must be opened before eating",
-                "✓ Food breaks/bites naturally at bite points",
-                "✓ Crumbs fall downward",
-                "✓ Melting/softening follows heat rules",
-                "❌ NEVER show eating through packaging",
-                "❌ NEVER show impossible bite marks",
-                "",
-            ])
-
-        # Tech/Electronics specific constraints
-        if any(word in product_lower for word in ['phone', 'device', 'gadget', 'electronic', 'headphone', 'watch']):
-            constraints.extend([
-                "ELECTRONICS PHYSICAL RULES:",
-                "✓ Screens show realistic content (not gibberish)",
-                "✓ Buttons are in correct positions",
-                "✓ Cables connect to correct ports",
-                "✓ Devices are held in natural, usable positions",
-                "❌ NEVER show screens with random text/symbols",
-                "❌ NEVER show impossible cable connections",
-                "",
-            ])
-
-        # Action-specific constraints
-        if 'spray' in action_lower or 'spritz' in action_lower:
-            constraints.extend([
-                "SPRAYING ACTION RULES:",
-                "✓ Product cap/cover MUST be visibly removed",
-                "✓ Finger positioned on spray mechanism",
-                "✓ Spray direction follows nozzle orientation",
-                "✓ Mist disperses naturally in air",
-                "",
-            ])
-
-        if 'apply' in action_lower or 'rub' in action_lower:
-            constraints.extend([
-                "APPLICATION ACTION RULES:",
-                "✓ Product visible on fingers/applicator before skin contact",
-                "✓ Natural spreading motion on skin",
-                "✓ Product absorption shown realistically",
-                "",
-            ])
-
-        if 'open' in action_lower or 'unbox' in action_lower:
-            constraints.extend([
-                "OPENING/UNBOXING RULES:",
-                "✓ Packaging opens from correct location (seams, lids, flaps)",
-                "✓ Contents visible only after opening",
-                "✓ Hands grip packaging naturally for opening motion",
-                "",
-            ])
-
-        return constraints
 
     async def _load_all_images(self, image_urls: list[str]) -> list[dict]:
         """Load multiple images and return list of image data dicts."""
