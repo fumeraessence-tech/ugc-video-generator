@@ -142,6 +142,7 @@ class ProductVisionService:
                 config=types.GenerateContentConfig(
                     temperature=0.1,  # Low temperature for precise analysis
                     max_output_tokens=2048,
+                    response_mime_type="application/json",
                 ),
             )
 
@@ -155,11 +156,33 @@ class ProductVisionService:
                     response_text = response_text[4:]
                 response_text = response_text.strip()
 
-            # Fix common LLM JSON issues: trailing commas before } or ]
+            # Fix common LLM JSON issues
             import re
+            # Trailing commas before } or ]
             response_text = re.sub(r',\s*([}\]])', r'\1', response_text)
 
-            data = json.loads(response_text)
+            # Try parsing — if it fails, attempt more aggressive cleanup
+            try:
+                data = json.loads(response_text)
+            except json.JSONDecodeError:
+                # Fix unescaped newlines/tabs inside string values
+                response_text = re.sub(r'(?<=": ")(.*?)(?="[,\s}])', lambda m: m.group(0).replace('\n', '\\n').replace('\t', '\\t'), response_text, flags=re.DOTALL)
+                # Fix single quotes used instead of double quotes
+                response_text = response_text.replace("'", '"')
+                # Remove control characters
+                response_text = re.sub(r'[\x00-\x1f\x7f]', ' ', response_text)
+                # Re-fix trailing commas after cleanup
+                response_text = re.sub(r',\s*([}\]])', r'\1', response_text)
+                try:
+                    data = json.loads(response_text)
+                except json.JSONDecodeError:
+                    # Last resort: extract first { to last } and try
+                    first = response_text.find('{')
+                    last = response_text.rfind('}')
+                    if first != -1 and last > first:
+                        data = json.loads(response_text[first:last + 1])
+                    else:
+                        raise
 
             # Build ProductDNA from response
             product_dna = ProductDNA(
