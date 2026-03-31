@@ -141,7 +141,7 @@ class ProductVisionService:
                 contents=contents,
                 config=types.GenerateContentConfig(
                     temperature=0.1,
-                    max_output_tokens=2048,
+                    max_output_tokens=8192,
                 ),
             )
 
