@@ -30,10 +30,12 @@ _UPLOADS_DIR = _FRONTEND_DIR / "public" / "uploads" / "image-generator"
 
 MAX_REF_IMAGE_BYTES = 500_000
 
+# Models ordered by image editing quality (not speed)
+# gemini-2.0-flash-exp is best at reference-based editing
 MODELS_TO_TRY = [
+    "gemini-2.0-flash-exp-image-generation",
     "gemini-2.5-flash-image",
     "gemini-3-pro-image-preview",
-    "gemini-2.0-flash-exp-image-generation",
 ]
 
 # ─── Shot Type Definitions ────────────────────────────────────────
@@ -303,7 +305,7 @@ class ImageGeneratorService:
 
         return all_parts
 
-    # ─── Prompt Building — SHORT AND DIRECT ───────────────────────
+    # ─── Prompt Building — MINIMAL TEXT, LET IMAGES SPEAK ──────────
 
     def _build_prompt(
         self,
@@ -315,137 +317,69 @@ class ImageGeneratorService:
         scene_analysis: dict | None,
         has_box: bool,
     ) -> str:
-        """Build a short, clear prompt — mirrors how a human uses Gemini manually.
+        """Build the shortest possible prompt. Let the reference images do the heavy lifting.
 
-        Key principle: separate WHAT TO KEEP from WHAT TO CHANGE.
-        The bottle shape/glass/cap/label-band design stays. Only the product name
-        text on the label changes. Text color forced to white.
+        Key insight: detailed bottle descriptions in text FIGHT the bottle reference image.
+        The model tries to follow text AND image, gets confused, invents a new bottle.
+        Solution: say almost nothing about the bottle — just tell it what to CHANGE.
         """
 
-        # ── Bottle description from DNA ──
-        bottle_desc = ""
-        if product_dna:
-            parts = []
-            if product_dna.get("shape"):
-                parts.append(f"Bottle shape: {product_dna['shape']}")
-            if product_dna.get("materials"):
-                mats = product_dna["materials"]
-                parts.append(f"Materials: {', '.join(mats) if isinstance(mats, list) else mats}")
-            if product_dna.get("texture"):
-                parts.append(f"Texture: {product_dna['texture']}")
-            if product_dna.get("distinctive_features"):
-                feats = product_dna["distinctive_features"]
-                parts.append(f"Features: {', '.join(feats) if isinstance(feats, list) else feats}")
-            if product_dna.get("visual_description"):
-                parts.append(f"Description: {product_dna['visual_description']}")
-            if parts:
-                bottle_desc = "\n".join(parts)
-
-        # ── Scene context ──
-        scene_info = ""
-        if scene_analysis:
-            sc = []
-            if scene_analysis.get("surface"):
-                sc.append(f"Surface: {scene_analysis['surface']}")
-            if scene_analysis.get("lighting"):
-                sc.append(f"Lighting: {scene_analysis['lighting']}")
-            if scene_analysis.get("background"):
-                sc.append(f"Background: {scene_analysis['background']}")
-            if sc:
-                scene_info = " | ".join(sc)
-
-        # ── Image guide ──
-        image_guide = "First image(s) = REFERENCE SCENE (the background/setup to keep)\nNext image(s) = OUR BOTTLE (clone this bottle's shape, glass, cap, label band design)"
+        # Image guide
+        image_guide = "Image 1 = REFERENCE SCENE (keep this background/setup exactly)\nImage 2 = OUR BOTTLE (clone this exact bottle into the scene)"
         if has_box:
-            image_guide += "\nLast image(s) = OUR BOX (clone this box's design exactly)"
+            image_guide += "\nImage 3 = OUR BOX (include this exact box next to the bottle)"
 
-        # ── Core identity block — WHAT TO KEEP vs WHAT TO CHANGE ──
-        identity = f"""BOTTLE FROM REFERENCE — CLONE THESE EXACTLY:
-- Bottle glass shape: rounded, wider at shoulders, tapering to base, thick clear glass base
-- Cap: flat GOLD metallic ring on top edge + taller BLACK ribbed/textured cylinder below it. Two-part cap. The gold ring is critical — do NOT remove it.
-- Label: BLACK horizontal BAND wrapping around the mid-section of the bottle
-- The '{brand_name}' logo text and design — keep EXACTLY as shown on the bottle reference
+        # Liquid color line
+        liquid_line = f"\nThe perfume liquid inside should be {liquid_color}." if liquid_color else ""
 
-LABEL TEXT LAYOUT (top to bottom on the black band):
-1. '{product_name}' — smaller text, at the TOP of the black label band (this replaces whatever product name is on the reference bottle)
-2. '{brand_name}' — LARGER text, in the MIDDLE of the black label band (the brand logo — keep the exact same font/style as the reference)
-3. 'ESSENCE' — smallest text, spaced-out uppercase, at the BOTTOM of the black label band
-
-ALL THREE lines of text must be in WHITE color. The bottle reference may show gold/champagne text — IGNORE that color and make all text pure WHITE.
-
-Perfume liquid color: {liquid_color or 'keep as shown in bottle reference'}"""
-
-        if bottle_desc:
-            identity += f"\n\nADDITIONAL BOTTLE DETAILS:\n{bottle_desc}"
-
-        # ── Shot-specific instruction ──
-        base_replace = f"""Remove the existing bottle/product from the reference scene image.
-Place our {brand_name} bottle (from bottle reference images) in its place.
-KEEP the reference scene EXACTLY: same background, same surface, same props, same lighting, same camera angle.
-ONLY the bottle changes — everything else stays identical to the reference scene."""
-
+        # Shot-specific task
         if shot_key == "hero_replace":
-            instruction = f"""{base_replace}
-
-Bottle only — NO box. Straight replacement."""
+            task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2).
+Keep the EXACT same background, surface, props, lighting, camera angle. Only the bottle changes.
+No box — bottle only."""
 
         elif shot_key == "with_box":
-            box_note = (
-                f"Place the {brand_name} box (from box reference images) next to the bottle. Clone the box exactly: same gradient, typography, proportions."
-                if has_box else
-                f"Add a packaging box next to the bottle with '{brand_name}' branding."
-            )
-            instruction = f"""{base_replace}
-
-Also include the packaging box:
-{box_note}
-Position: bottle slightly in front, box beside it, both on the scene surface."""
+            if has_box:
+                task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2) and our box (Image 3) side by side.
+Keep the EXACT same background, surface, props, lighting. Bottle slightly in front, box beside it."""
+            else:
+                task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2) and add a packaging box next to it.
+Keep the EXACT same background, surface, props, lighting."""
 
         elif shot_key == "single_shot":
-            instruction = f"""{base_replace}
-
-Clean single bottle composition — bottle is the sole hero subject.
-Remove any clutter, let the bottle breathe in the scene.
-Bottle only — NO box. Product fills 60-70% of frame."""
+            task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2).
+Keep the EXACT same background, surface, lighting, camera angle. Bottle is the sole subject — clean composition.
+No box — bottle only. Bottle fills 60-70% of the frame."""
 
         elif shot_key == "dynamic_angle":
-            instruction = f"""{base_replace}
-
-Place the bottle at a dynamic angle — tilted ~30°, leaning on a prop, or artistically angled.
-Use the scene's props (driftwood/stone/etc) to support it naturally.
-Liquid shifts with gravity. The tilt looks intentional and editorial.
-Bottle only — NO box."""
+            task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2) tilted at a dramatic ~30° angle.
+Keep the EXACT same background, surface, props, lighting. Use the scene props to support the tilted bottle naturally.
+No box — bottle only."""
 
         elif shot_key == "detail_closeup":
-            instruction = f"""Create an extreme close-up/macro shot of our {brand_name} bottle.
-Use the reference scene's lighting and color palette.
-Tight crop on the label area — '{product_name}' and '{brand_name}' logo must be sharp and readable.
-Show glass texture, cap detail, liquid color through the glass.
-Shallow depth of field. Product fills 85%+ of frame."""
+            task = f"""Create an extreme close-up of our bottle (Image 2) using the lighting and colors from the reference scene (Image 1).
+Tight crop on the label and cap. Sharp focus on label text. Shallow depth of field. Bottle fills 85%+ of frame."""
 
         else:
-            instruction = base_replace
+            task = "Replace the bottle in the reference scene with our bottle. Keep everything else identical."
 
-        # ── Assemble final prompt ──
-        prompt = f"""IMAGES PROVIDED:
-{image_guide}
-
-{identity}
+        prompt = f"""{image_guide}
 
 TASK:
-{instruction}
+{task}
 
-CRITICAL RULES:
-1. Cap MUST have gold metallic ring on top + black ribbed cylinder. Do NOT make it all-black.
-2. Label text top-to-bottom: '{product_name}' (small) → '{brand_name}' (large) → 'ESSENCE' (smallest). This exact order.
-3. ALL text on label = WHITE. Not gold, not cream — pure white.
-4. Bottle shape = clone from reference. Same rounded glass, same thick clear base.
-5. '{brand_name}' logo font = copy EXACTLY from bottle reference.
-6. Scene background/surface/props/lighting = keep identical to reference scene.
-7. 1:1 aspect ratio.
-{f"8. Scene context: {scene_info}" if scene_info else ""}
+ONLY THREE THINGS TO CHANGE ON THE BOTTLE LABEL:
+1. The product name text on the label → change it to '{product_name}'
+2. ALL text color on the label → make it WHITE (ignore the gold/cream color you see on the reference bottle — change it to pure white)
+3. The perfume liquid color → {liquid_color or 'keep as shown'}{liquid_line}
 
-Generate the image."""
+DO NOT CHANGE ANYTHING ELSE ON THE BOTTLE:
+- Keep the exact bottle shape, glass, cap (gold ring + black ribbed), label band design from Image 2
+- Keep the brand logo/name exactly as shown on Image 2 — do NOT redesign it
+- Keep the same font style — do NOT invent new typography
+- Keep 'ESSENCE' text exactly as shown on the bottle
+
+Output: 1:1 aspect ratio. Generate the image."""
 
         return prompt
 
