@@ -140,49 +140,19 @@ class ProductVisionService:
                 model="gemini-2.5-flash",
                 contents=contents,
                 config=types.GenerateContentConfig(
-                    temperature=0.1,  # Low temperature for precise analysis
+                    temperature=0.1,
                     max_output_tokens=2048,
-                    response_mime_type="application/json",
                 ),
             )
 
-            # Parse JSON response
-            response_text = response.text.strip()
+            # Extract text from response
+            response_text = (response.text or "").strip()
+            if not response_text:
+                raise ValueError("Gemini returned empty response")
 
-            # Clean up response if it has markdown code blocks
-            if response_text.startswith("```"):
-                response_text = response_text.split("```")[1]
-                if response_text.startswith("json"):
-                    response_text = response_text[4:]
-                response_text = response_text.strip()
+            logger.info(f"Raw vision response (first 300 chars): {response_text[:300]}")
 
-            # Fix common LLM JSON issues
-            import re
-            # Trailing commas before } or ]
-            response_text = re.sub(r',\s*([}\]])', r'\1', response_text)
-
-            # Try parsing — if it fails, attempt more aggressive cleanup
-            try:
-                data = json.loads(response_text)
-            except json.JSONDecodeError:
-                # Fix unescaped newlines/tabs inside string values
-                response_text = re.sub(r'(?<=": ")(.*?)(?="[,\s}])', lambda m: m.group(0).replace('\n', '\\n').replace('\t', '\\t'), response_text, flags=re.DOTALL)
-                # Fix single quotes used instead of double quotes
-                response_text = response_text.replace("'", '"')
-                # Remove control characters
-                response_text = re.sub(r'[\x00-\x1f\x7f]', ' ', response_text)
-                # Re-fix trailing commas after cleanup
-                response_text = re.sub(r',\s*([}\]])', r'\1', response_text)
-                try:
-                    data = json.loads(response_text)
-                except json.JSONDecodeError:
-                    # Last resort: extract first { to last } and try
-                    first = response_text.find('{')
-                    last = response_text.rfind('}')
-                    if first != -1 and last > first:
-                        data = json.loads(response_text[first:last + 1])
-                    else:
-                        raise
+            data = self._parse_json_response(response_text)
 
             # Build ProductDNA from response
             product_dna = ProductDNA(
@@ -218,6 +188,48 @@ class ProductVisionService:
         except Exception as e:
             logger.exception(f"Product analysis failed: {e}")
             raise
+
+    @staticmethod
+    def _parse_json_response(text: str) -> dict:
+        """Robustly parse JSON from Gemini response, handling common LLM issues."""
+        import re
+
+        # Strip markdown code fences
+        if "```" in text:
+            match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+            if match:
+                text = match.group(1).strip()
+
+        # Fix trailing commas
+        text = re.sub(r',\s*([}\]])', r'\1', text)
+
+        # Try direct parse
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Remove control characters
+        text = re.sub(r'[\x00-\x1f\x7f]', ' ', text)
+        text = re.sub(r',\s*([}\]])', r'\1', text)
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Extract first { to last }
+        first = text.find('{')
+        last = text.rfind('}')
+        if first != -1 and last > first:
+            raw = text[first:last + 1]
+            raw = re.sub(r',\s*([}\]])', r'\1', raw)
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+
+        raise ValueError(f"Could not parse JSON from response: {text[:300]}")
 
     async def _load_image(self, url: str) -> dict | None:
         """Load image from URL or local path.
