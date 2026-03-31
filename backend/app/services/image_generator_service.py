@@ -284,28 +284,24 @@ class ImageGeneratorService:
         box_parts: list[types.Part],
         prompt: str,
     ) -> list[types.Part]:
-        """Assemble content parts: all images first, then ONE clear text instruction.
+        """Assemble: prompt text FIRST, then images in order.
 
-        Order matters — reference scene first, then bottle, then box (if any), then prompt.
-        NO text between images. Just images → one instruction. Simple and clear.
+        Putting the text instruction before the images helps the model
+        understand the ROLE of each image as it processes them.
         """
         all_parts: list[types.Part] = []
 
-        # All reference scene images
-        all_parts.extend(reference_parts)
-
-        # All bottle reference images
-        all_parts.extend(bottle_parts)
-
-        # Box images (only for with_box shots)
-        all_parts.extend(box_parts)
-
-        # ONE clear text instruction at the end
+        # Text instruction FIRST — model reads this then interprets images
         all_parts.append(types.Part.from_text(text=prompt))
+
+        # Images in order: reference scene → bottle → box
+        all_parts.extend(reference_parts)
+        all_parts.extend(bottle_parts)
+        all_parts.extend(box_parts)
 
         return all_parts
 
-    # ─── Prompt Building — MINIMAL TEXT, LET IMAGES SPEAK ──────────
+    # ─── Prompt Building — NATURAL LANGUAGE STYLE ──────────────────
 
     def _build_prompt(
         self,
@@ -317,69 +313,110 @@ class ImageGeneratorService:
         scene_analysis: dict | None,
         has_box: bool,
     ) -> str:
-        """Build the shortest possible prompt. Let the reference images do the heavy lifting.
+        """Build prompt in natural conversational style — like how a human instructs Gemini.
 
-        Key insight: detailed bottle descriptions in text FIGHT the bottle reference image.
-        The model tries to follow text AND image, gets confused, invents a new bottle.
-        Solution: say almost nothing about the bottle — just tell it what to CHANGE.
+        Pattern: "Using these reference images: Take [X] from [scene image].
+        Remove [old product]. Place [our bottle] (same shape as [bottle image]) in its place.
+        Change [specific text]. Keep [everything else]."
         """
 
-        # Image guide
-        image_guide = "Image 1 = REFERENCE SCENE (keep this background/setup exactly)\nImage 2 = OUR BOTTLE (clone this exact bottle into the scene)"
-        if has_box:
-            image_guide += "\nImage 3 = OUR BOX (include this exact box next to the bottle)"
+        liquid = liquid_color or "as shown in the bottle reference"
 
-        # Liquid color line
-        liquid_line = f"\nThe perfume liquid inside should be {liquid_color}." if liquid_color else ""
-
-        # Shot-specific task
         if shot_key == "hero_replace":
-            task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2).
-Keep the EXACT same background, surface, props, lighting, camera angle. Only the bottle changes.
-No box — bottle only."""
+            prompt = (
+                f"Using these reference images: "
+                f"Take the background setting, surface, props, and lighting from the first image. "
+                f"Remove the existing bottle. "
+                f"Place a {brand_name} perfume bottle (same exact shape, glass, and cap as the second image) in its place. "
+                f"The perfume liquid should be {liquid}. "
+                f"On the bottle's black label band, replace the product name with '{product_name}' using white serif typography. "
+                f"Keep '{brand_name}' logo and 'ESSENCE' text exactly as shown on the second image, but make all text white. "
+                f"Maintain the same dramatic lighting, camera angle, and composition from the first image. "
+                f"No box — bottle only. "
+                f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
+            )
 
         elif shot_key == "with_box":
             if has_box:
-                task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2) and our box (Image 3) side by side.
-Keep the EXACT same background, surface, props, lighting. Bottle slightly in front, box beside it."""
+                prompt = (
+                    f"Using these reference images: "
+                    f"Take the background setting, surface, props, and lighting from the first image. "
+                    f"Remove the existing bottle. "
+                    f"Place a {brand_name} perfume bottle (same exact shape as the second image) and "
+                    f"the {brand_name} packaging box (same exact design as the third image) side by side. "
+                    f"The perfume liquid should be {liquid}. "
+                    f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
+                    f"Keep '{brand_name}' logo and 'ESSENCE' text exactly as shown on the bottle reference, but all text in white. "
+                    f"The box should be cloned exactly from the third image — same gradient, same typography, same proportions. "
+                    f"Bottle slightly in front, box beside it, both sitting naturally on the surface. "
+                    f"Maintain the same lighting and atmosphere from the first image. "
+                    f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
+                )
             else:
-                task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2) and add a packaging box next to it.
-Keep the EXACT same background, surface, props, lighting."""
+                prompt = (
+                    f"Using these reference images: "
+                    f"Take the background setting, surface, props, and lighting from the first image. "
+                    f"Remove the existing bottle. "
+                    f"Place a {brand_name} perfume bottle (same exact shape as the second image) and a packaging box side by side. "
+                    f"The perfume liquid should be {liquid}. "
+                    f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
+                    f"Keep '{brand_name}' logo and 'ESSENCE' text exactly as shown. "
+                    f"Maintain the same lighting from the first image. "
+                    f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
+                )
 
         elif shot_key == "single_shot":
-            task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2).
-Keep the EXACT same background, surface, lighting, camera angle. Bottle is the sole subject — clean composition.
-No box — bottle only. Bottle fills 60-70% of the frame."""
+            prompt = (
+                f"Using these reference images: "
+                f"Take the background setting, surface, and lighting from the first image. "
+                f"Remove the existing bottle and any clutter. "
+                f"Place a {brand_name} perfume bottle (same exact shape, glass, and cap as the second image) as the sole hero subject. "
+                f"The perfume liquid should be {liquid}. "
+                f"On the bottle's black label band, replace the product name with '{product_name}' using white serif typography. "
+                f"Keep '{brand_name}' logo and 'ESSENCE' text exactly as shown on the second image, but make all text white. "
+                f"Clean composition — bottle fills 60-70% of frame. "
+                f"Maintain the same lighting and mood from the first image. "
+                f"No box — bottle only. "
+                f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
+            )
 
         elif shot_key == "dynamic_angle":
-            task = f"""Remove the bottle from the reference scene (Image 1). Replace it with our bottle (Image 2) tilted at a dramatic ~30° angle.
-Keep the EXACT same background, surface, props, lighting. Use the scene props to support the tilted bottle naturally.
-No box — bottle only."""
+            prompt = (
+                f"Using these reference images: "
+                f"Take the background setting, surface, props, and lighting from the first image. "
+                f"Remove the existing bottle. "
+                f"Place a {brand_name} perfume bottle (same exact shape as the second image) tilted at a dramatic ~30° angle, "
+                f"leaning against a prop in the scene. "
+                f"The perfume liquid should be {liquid}. "
+                f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
+                f"Keep '{brand_name}' logo and 'ESSENCE' text exactly as shown on the second image, but all text in white. "
+                f"The tilt should look intentional and artistic. Liquid shifts naturally with gravity. "
+                f"Maintain the same dramatic lighting from the first image. "
+                f"No box — bottle only. "
+                f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
+            )
 
         elif shot_key == "detail_closeup":
-            task = f"""Create an extreme close-up of our bottle (Image 2) using the lighting and colors from the reference scene (Image 1).
-Tight crop on the label and cap. Sharp focus on label text. Shallow depth of field. Bottle fills 85%+ of frame."""
+            prompt = (
+                f"Using these reference images: "
+                f"Take the lighting direction and color palette from the first image. "
+                f"Create an extreme close-up/macro shot of the {brand_name} perfume bottle from the second image. "
+                f"The perfume liquid should be {liquid}. "
+                f"Tight crop on the label and cap area. "
+                f"On the black label band, the product name '{product_name}' and '{brand_name}' logo must be tack-sharp "
+                f"and clearly readable — all in white text. "
+                f"Keep the exact same bottle shape, cap (gold ring + black ribbed), and label band design from the second image. "
+                f"Shallow depth of field — label sharp, edges soft. Bottle fills 85%+ of frame. "
+                f"Professional luxury perfume macro photography. 1:1 aspect ratio."
+            )
 
         else:
-            task = "Replace the bottle in the reference scene with our bottle. Keep everything else identical."
-
-        prompt = f"""{image_guide}
-
-TASK:
-{task}
-
-ONLY THREE THINGS TO CHANGE ON THE BOTTLE LABEL:
-1. The product name text on the label → change it to '{product_name}'
-2. ALL text color on the label → make it WHITE (ignore the gold/cream color you see on the reference bottle — change it to pure white)
-3. The perfume liquid color → {liquid_color or 'keep as shown'}{liquid_line}
-
-DO NOT CHANGE ANYTHING ELSE ON THE BOTTLE:
-- Keep the exact bottle shape, glass, cap (gold ring + black ribbed), label band design from Image 2
-- Keep the brand logo/name exactly as shown on Image 2 — do NOT redesign it
-- Keep the same font style — do NOT invent new typography
-- Keep 'ESSENCE' text exactly as shown on the bottle
-
-Output: 1:1 aspect ratio. Generate the image."""
+            prompt = (
+                f"Using these reference images: "
+                f"Take the background from the first image. Replace the bottle with the one from the second image. "
+                f"Change the product name to '{product_name}', make all label text white. "
+                f"Keep everything else exactly the same. 1:1 aspect ratio."
+            )
 
         return prompt
 
