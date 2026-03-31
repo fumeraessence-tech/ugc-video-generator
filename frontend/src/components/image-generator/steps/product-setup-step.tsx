@@ -194,8 +194,10 @@ export function ProductSetupStep() {
   // ── Analyze Product ────────────────────────────────────────────
 
   const analyzeProduct = useCallback(async () => {
-    // Use all available images for analysis
-    const allImages = [...bottleImages, ...boxImages, ...productImages];
+    // Use all available images for analysis — filter out any empty/invalid URLs
+    const allImages = [...bottleImages, ...boxImages, ...productImages].filter(
+      (url) => url && url.trim().length > 0
+    );
     if (allImages.length === 0) {
       toast({
         title: "No images",
@@ -217,9 +219,16 @@ export function ProductSetupStep() {
         }),
       });
 
-      if (!response.ok) throw new Error("Analysis failed");
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || errData.detail || `Analysis failed (${response.status})`);
+      }
 
       const data = await response.json();
+      if (!data.success || !data.product_dna) {
+        throw new Error(data.error || "No product DNA returned");
+      }
+
       setProductDNA(data.product_dna);
       setDnaExpanded(true);
 
@@ -229,6 +238,7 @@ export function ProductSetupStep() {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Analysis failed";
+      console.error("Product analysis error:", err);
       toast({ title: "Analysis failed", description: message, variant: "destructive" });
     } finally {
       setAnalysisLoading(false);
