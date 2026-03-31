@@ -508,17 +508,19 @@ class ImageGeneratorService:
         )
 
         # ── Assemble final prompt ──
-        prompt = f"""REFERENCE IMAGES PROVIDED:
-{image_labels_text}
+        prompt = f"""
+⚠️ #1 CRITICAL RULE — LABEL TEXT COLOR: ALL text on the bottle label MUST be WHITE. Pure white (#FFFFFF). Not gold, not cream, not black, not grey. WHITE text only. This is non-negotiable.
+
+⚠️ #2 CRITICAL RULE — SCENE PRESERVATION: Your output MUST look like the REFERENCE SCENE image above. Same background, same surface, same props, same lighting direction, same camera angle. You are ONLY replacing the bottle — everything else stays IDENTICAL.
 
 ════════════════════════════════════════════════════════
-TASK: Generate a photorealistic product photograph.
+TASK: Recreate the reference scene image with the product bottle swapped.
 ════════════════════════════════════════════════════════
 
 {scene_context}
 
 ════════════════════════════════════════════════════════
-PRODUCT IDENTITY (READ CAREFULLY)
+PRODUCT IDENTITY
 ════════════════════════════════════════════════════════
 {product_identity}
 
@@ -528,26 +530,15 @@ SHOT TYPE: {shot_info['label'].upper()}
 {shot_direction}
 
 ════════════════════════════════════════════════════════
-MANDATORY RULES (ZERO TOLERANCE)
+MANDATORY RULES
 ════════════════════════════════════════════════════════
-1. KEEP the reference scene EXACTLY as-is: same background, lighting direction, shadows, surface texture, props, camera angle
-2. ONLY replace the bottle/product — everything else stays IDENTICAL to the reference scene
-3. Clone the bottle shape, proportions, glass clarity, cap design, and label layout EXACTLY from the bottle reference images
-4. ALL label text must be WHITE — not gold, not cream, not black — PURE WHITE
-5. The brand logo/name '{brand_name}' must be preserved EXACTLY as it appears on the reference bottle — same font, same size, same position
-6. The product name '{product_name}' must appear on the label — same typography style as reference
-7. Maintain realistic lighting, reflections, and shadows that match the scene's lighting direction
-8. Product proportions must be physically correct — match the reference bottle's height-to-width ratio
-9. Glass transparency and liquid level must match the reference bottle
-10. 1:1 aspect ratio output
-
-ANTI-AI ARTIFACTS:
-- Natural shadow softness matching scene lighting
-- Realistic glass reflections and refractions
-- No text distortion, warping, or font changes
-- No plastic/waxy surface textures
-- Subtle depth-of-field matching the reference scene
-- No over-sharpening or over-saturation
+1. OUTPUT = REFERENCE SCENE + NEW BOTTLE. The background, surface, props, lighting, shadows, camera angle must be IDENTICAL to the reference scene image.
+2. Clone the bottle from the BOTTLE REFERENCE images: exact shape, cap, glass, proportions, label layout.
+3. Label text: WHITE color only. Brand '{brand_name}' + product '{product_name}' both visible.
+4. Typography: copy the EXACT font from the bottle reference — do NOT invent new fonts.
+5. '{brand_name}' = brand logo (preserve design exactly). '{product_name}' = product/variant name.
+6. Realistic lighting on the new bottle matching the scene's light direction.
+7. 1:1 aspect ratio.
 
 Generate the image now."""
 
@@ -694,13 +685,53 @@ Every text character must be legible — '{product_name}' and '{brand_name}' bra
         prompt: str,
         shot_key: str,
     ) -> str:
-        """Call Gemini with reference + product images and the prompt."""
-        # Order: reference scene first, then product images, then text
-        all_parts = reference_parts + product_parts + [types.Part.from_text(text=prompt)]
+        """Call Gemini with interleaved text+image parts for strong scene anchoring.
+
+        The key insight: flat image lists confuse the model about which image is the
+        scene vs the product. Interleaving text labels between images tells the model
+        exactly what each image represents — dramatically improving scene preservation.
+        """
+        # Build interleaved parts: label each image explicitly
+        all_parts: list[types.Part] = []
+
+        # 1. Reference scene(s) with explicit label
+        all_parts.append(types.Part.from_text(
+            text=(
+                "REFERENCE SCENE IMAGE — This is the exact scene/background you MUST preserve. "
+                "Your output must look like this scene with ONLY the product swapped:"
+            )
+        ))
+        all_parts.extend(reference_parts)
+
+        # 2. Product bottle refs with explicit label
+        all_parts.append(types.Part.from_text(
+            text=(
+                "PRODUCT BOTTLE REFERENCE — This is the exact bottle to place in the scene above. "
+                "Clone this bottle precisely (shape, cap, label, glass, proportions):"
+            )
+        ))
+        # Separate bottle parts from box parts
+        # product_parts may contain bottle + box — bottle always comes first
+        all_parts.extend(product_parts)
+
+        # 3. Reinforce scene reference at the end (the model pays most attention to
+        #    content near the end of the prompt, so repeating the scene image here
+        #    dramatically improves scene preservation)
+        all_parts.append(types.Part.from_text(
+            text=(
+                "REMINDER — Your generated image MUST match the REFERENCE SCENE above. "
+                "Same background, same surface, same props, same lighting, same camera angle. "
+                "ONLY the bottle changes. Here is the scene again for reference:"
+            )
+        ))
+        all_parts.extend(reference_parts)
+
+        # 4. Final generation instruction
+        all_parts.append(types.Part.from_text(text=prompt))
 
         for model_name in MODELS_TO_TRY:
             try:
-                logger.info("Image gen [%s]: trying %s", shot_key, model_name)
+                logger.info("Image gen [%s]: trying %s (%d parts)", shot_key, model_name, len(all_parts))
                 config = types.GenerateContentConfig(
                     response_modalities=["IMAGE", "TEXT"],
                     image_config=types.ImageConfig(aspect_ratio="1:1"),
