@@ -360,21 +360,23 @@ class ImageGeneratorService:
             image_guide += "\nLast image(s) = OUR BOX (clone this box's design exactly)"
 
         # ── Core identity block — WHAT TO KEEP vs WHAT TO CHANGE ──
-        identity = f"""WHAT TO KEEP FROM BOTTLE REFERENCE (do NOT change these):
-- The bottle's physical shape, glass, cap design, label band/strip layout
-- The '{brand_name}' logo — this is the brand identity, keep it EXACTLY as shown
-- The word 'ESSENCE' or any sub-brand text below the logo
-- The cap's gold ring + black ribbed cylinder design
+        identity = f"""BOTTLE FROM REFERENCE — CLONE THESE EXACTLY:
+- Bottle glass shape: rounded, wider at shoulders, tapering to base, thick clear glass base
+- Cap: flat GOLD metallic ring on top edge + taller BLACK ribbed/textured cylinder below it. Two-part cap. The gold ring is critical — do NOT remove it.
+- Label: BLACK horizontal BAND wrapping around the mid-section of the bottle
+- The '{brand_name}' logo text and design — keep EXACTLY as shown on the bottle reference
 
-WHAT TO CHANGE on the label:
-- Change the product/variant name text to: '{product_name}'
-  (replace whatever name is currently on the bottle reference with '{product_name}')
-- Change ALL text color to WHITE — the reference may show gold/champagne text,
-  but the final image MUST have pure white text on the label
-- Perfume liquid color: {liquid_color or 'keep as shown in bottle reference'}"""
+LABEL TEXT LAYOUT (top to bottom on the black band):
+1. '{product_name}' — smaller text, at the TOP of the black label band (this replaces whatever product name is on the reference bottle)
+2. '{brand_name}' — LARGER text, in the MIDDLE of the black label band (the brand logo — keep the exact same font/style as the reference)
+3. 'ESSENCE' — smallest text, spaced-out uppercase, at the BOTTOM of the black label band
+
+ALL THREE lines of text must be in WHITE color. The bottle reference may show gold/champagne text — IGNORE that color and make all text pure WHITE.
+
+Perfume liquid color: {liquid_color or 'keep as shown in bottle reference'}"""
 
         if bottle_desc:
-            identity += f"\n\nBOTTLE PHYSICAL DETAILS (from analysis):\n{bottle_desc}"
+            identity += f"\n\nADDITIONAL BOTTLE DETAILS:\n{bottle_desc}"
 
         # ── Shot-specific instruction ──
         base_replace = f"""Remove the existing bottle/product from the reference scene image.
@@ -433,14 +435,15 @@ Shallow depth of field. Product fills 85%+ of frame."""
 TASK:
 {instruction}
 
-RULES:
-1. Bottle shape, cap, glass = clone from bottle reference. Do NOT invent a new bottle design.
-2. '{brand_name}' logo = keep EXACTLY as shown. Do NOT redesign or modify it.
-3. Product name on label = '{product_name}' (replace the existing name text with this).
-4. ALL label text = WHITE color. Not gold, not cream, not black — pure white.
-5. Reference scene background/surface/props/lighting = keep identical.
-6. 1:1 aspect ratio.
-{f"7. Scene context: {scene_info}" if scene_info else ""}
+CRITICAL RULES:
+1. Cap MUST have gold metallic ring on top + black ribbed cylinder. Do NOT make it all-black.
+2. Label text top-to-bottom: '{product_name}' (small) → '{brand_name}' (large) → 'ESSENCE' (smallest). This exact order.
+3. ALL text on label = WHITE. Not gold, not cream — pure white.
+4. Bottle shape = clone from reference. Same rounded glass, same thick clear base.
+5. '{brand_name}' logo font = copy EXACTLY from bottle reference.
+6. Scene background/surface/props/lighting = keep identical to reference scene.
+7. 1:1 aspect ratio.
+{f"8. Scene context: {scene_info}" if scene_info else ""}
 
 Generate the image."""
 
