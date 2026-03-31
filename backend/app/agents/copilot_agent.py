@@ -61,7 +61,10 @@ You MUST respond with valid JSON following this structure:
       "visual_description": "Medium close-up of creator holding product with excited expression",
       "character_action": "holds product enthusiastically, makes eye contact with camera",
       "product_visibility": "primary",
-      "camera_notes": "ARRI Alexa Mini with 35mm f/1.8 lens, medium close-up, eye-level, static, focused on subject"
+      "camera_notes": "ARRI Alexa Mini with 35mm f/1.8 lens, medium close-up, eye-level, static, focused on subject",
+      "is_broll": false,
+      "broll_type": null,
+      "voiceover_text": ""
     }
   ],
   "total_duration": 30.0,
@@ -69,7 +72,7 @@ You MUST respond with valid JSON following this structure:
   "style_notes": "Fast-paced, energetic, authentic feel"
 }
 
-Scene types: hook, intro, problem, solution, demonstration, unboxing, application, testimonial, cta
+Scene types: hook, intro, problem, solution, demonstration, unboxing, application, testimonial, cta, broll
 Product visibility: primary (80%), secondary (15%), background (5%), none
 """
 
@@ -129,6 +132,7 @@ Be VERY SPECIFIC about what product this is. Do NOT guess a different category!"
         words_per_minute: int = 150,
         language: str = "en",
         camera_device: str = "iphone_16_pro_max",
+        include_broll: bool = True,
     ) -> Script:
         """Generate a professional UGC script with WPM validation and image analysis."""
         if not self._client:
@@ -207,6 +211,30 @@ LANGUAGE REQUIREMENT:
         if camera_device != "professional":
             camera_note += ", handheld, natural autofocus, slight camera shake"
             user_prompt += f"\n\nCAMERA: Use '{camera_note}' as camera_notes for all scenes (NOT ARRI Alexa Mini).\n"
+
+        # B-roll instructions
+        if include_broll:
+            user_prompt += """
+
+B-ROLL SCENES (IMPORTANT — interleave between main scenes):
+Include 2-4 B-roll scenes interleaved between main dialogue scenes.
+B-roll scenes are SHORT visual-only inserts (2-4 seconds) with NO dialogue.
+
+B-roll scene rules:
+- Set "is_broll": true and "scene_type": "broll"
+- "dialogue": "" (empty), "character_action": "" (empty)
+- "broll_type": one of "product_closeup", "environment", "lifestyle_insert", "transition"
+- "duration_seconds": 2 to 4 seconds
+- "voiceover_text": optional short narration (or empty)
+
+B-roll types:
+- product_closeup: Extreme macro detail of the product (prominent product_visibility)
+- environment: Atmospheric establishing shot, NO person (none product_visibility)
+- lifestyle_insert: Anonymous hands using product (prominent product_visibility)
+- transition: Quick visual — soft focus, light flare (none product_visibility)
+
+Place B-roll: after hook, between problem/solution, during demo, before CTA.
+"""
 
         try:
             response = await self._client.models.generate_content(

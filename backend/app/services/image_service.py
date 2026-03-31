@@ -1,5 +1,7 @@
 """Image generation service using Imagen 4 with reference images for consistency."""
 
+import asyncio
+import io
 import logging
 import uuid
 from pathlib import Path
@@ -9,6 +11,9 @@ from google.genai import types
 
 from app.models.schemas import AvatarDNA, Script, ScriptScene
 from app.config import settings
+
+# Max reference image size in bytes (500KB) — larger images are compressed to JPEG
+MAX_REF_IMAGE_BYTES = 500_000
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +209,19 @@ class ImageService:
                 else:
                     scene_avatar_images = default_avatar_loaded
 
+                # Per-scene product images (may be overridden for B-roll)
+                scene_product_images = product_images_loaded
+
+                # B-roll: skip avatar refs, conditionally skip product refs
+                if scene.is_broll:
+                    scene_avatar_images = []
+                    if scene.broll_type in ("environment", "transition"):
+                        scene_product_images = []
+                    logger.info(
+                        f"🎬 Scene {scene.scene_number}: B-ROLL ({scene.broll_type}) — "
+                        f"avatar refs: {len(scene_avatar_images)}, product refs: {len(scene_product_images)}"
+                    )
+
                 # Build comprehensive prompt for this scene
                 prompt = self._build_comprehensive_prompt(
                     scene=scene,
@@ -213,6 +231,8 @@ class ImageService:
                     style_notes=script.style_notes,
                     aspect_ratio=aspect_ratio,
                     camera_device=camera_device,
+                    is_broll=scene.is_broll,
+                    broll_type=scene.broll_type.value if scene.broll_type else None,
                 )
 
                 # Generate image with per-scene reference images
@@ -220,7 +240,7 @@ class ImageService:
                     scene_number=scene.scene_number,
                     prompt=prompt,
                     avatar_images=scene_avatar_images,
-                    product_images=product_images_loaded,
+                    product_images=scene_product_images,
                     aspect_ratio=aspect_ratio,
                 )
 
@@ -241,6 +261,143 @@ class ImageService:
                 })
 
         return results
+
+    async def generate_storyboard_streaming(
+        self,
+        script: Script,
+        avatar_dna: AvatarDNA | None = None,
+        avatar_reference_images: list[str] | None = None,
+        reference_images_by_angle: dict[str, str] | None = None,
+        product_name: str | None = None,
+        product_images: list[str] | None = None,
+        product_dna: dict | None = None,
+        aspect_ratio: str = "9:16",
+        camera_device: str = "iphone_16_pro_max",
+    ):
+        """Async generator: yields one scene result dict as each image is generated.
+
+        Yields dicts with: scene_number, image_url, prompt, scene_index, total_scenes
+        """
+        if self._client is None:
+            logger.warning("No Gemini API key -- returning mock storyboard (streaming)")
+            for i, result in enumerate(self._mock_storyboard(script)):
+                yield {**result, "scene_index": i, "total_scenes": len(script.scenes)}
+            return
+
+        avatar_reference_images = avatar_reference_images or []
+        product_images = product_images or []
+        total = len(script.scenes)
+
+        # Pre-load all unique reference image URLs into a cache
+        _image_cache: dict[str, dict | None] = {}
+
+        async def _load_cached(url: str) -> dict | None:
+            if url not in _image_cache:
+                _image_cache[url] = await self._load_image(url)
+            return _image_cache[url]
+
+        all_ref_urls: list[str] = list(avatar_reference_images[:4])
+        if reference_images_by_angle:
+            for url in reference_images_by_angle.values():
+                if url not in all_ref_urls:
+                    all_ref_urls.append(url)
+
+        for url in all_ref_urls:
+            await _load_cached(url)
+
+        product_images_loaded = await self._load_all_images(product_images[:3])
+
+        default_avatar_loaded = [
+            _image_cache[url] for url in avatar_reference_images[:4]
+            if url in _image_cache and _image_cache[url] and _image_cache[url].get("bytes")
+        ]
+
+        logger.info(
+            f"✅ [stream] Pre-loaded refs: avatar {len(default_avatar_loaded)}/{len(avatar_reference_images[:4])}, "
+            f"product {len(product_images_loaded)}/{len(product_images[:3])}"
+        )
+
+        # Prepare scene data upfront (prompts, refs) so we can parallelize API calls
+        scene_tasks: list[dict] = []
+        for scene_index, scene in enumerate(script.scenes):
+            if reference_images_by_angle:
+                scene_ref_urls = self._select_scene_references(
+                    camera_angle=scene.camera_setup.angle,
+                    reference_images_by_angle=reference_images_by_angle,
+                    fallback_images=avatar_reference_images[:4],
+                    max_refs=4,
+                )
+                scene_avatar_images = [
+                    _image_cache[url] for url in scene_ref_urls
+                    if url in _image_cache and _image_cache[url] and _image_cache[url].get("bytes")
+                ]
+            else:
+                scene_avatar_images = default_avatar_loaded
+
+            scene_product_images = product_images_loaded
+
+            if scene.is_broll:
+                scene_avatar_images = []
+                if scene.broll_type in ("environment", "transition"):
+                    scene_product_images = []
+
+            prompt = self._build_comprehensive_prompt(
+                scene=scene,
+                avatar_dna=avatar_dna,
+                product_name=product_name,
+                product_dna=product_dna,
+                style_notes=script.style_notes,
+                aspect_ratio=aspect_ratio,
+                camera_device=camera_device,
+                is_broll=scene.is_broll,
+                broll_type=scene.broll_type.value if scene.broll_type else None,
+            )
+
+            scene_tasks.append({
+                "scene_index": scene_index,
+                "scene_number": scene.scene_number,
+                "prompt": prompt,
+                "avatar_images": scene_avatar_images,
+                "product_images": scene_product_images,
+            })
+
+        # Generate scenes in parallel batches of 3 to avoid Gemini rate limits
+        BATCH_SIZE = 3
+        for batch_start in range(0, len(scene_tasks), BATCH_SIZE):
+            batch = scene_tasks[batch_start:batch_start + BATCH_SIZE]
+
+            async def _generate_one(task: dict) -> dict:
+                try:
+                    image_url = await self._generate_scene_image(
+                        scene_number=task["scene_number"],
+                        prompt=task["prompt"],
+                        avatar_images=task["avatar_images"],
+                        product_images=task["product_images"],
+                        aspect_ratio=aspect_ratio,
+                    )
+                    logger.info(f"✅ [stream] Scene {task['scene_number']} generated: {image_url}")
+                    return {
+                        "scene_number": str(task["scene_number"]),
+                        "image_url": image_url or "",
+                        "prompt": task["prompt"],
+                        "scene_index": task["scene_index"],
+                        "total_scenes": total,
+                    }
+                except Exception as e:
+                    logger.exception(f"❌ [stream] Scene {task['scene_number']} failed: {e}")
+                    return {
+                        "scene_number": str(task["scene_number"]),
+                        "image_url": "",
+                        "prompt": f"Error: {e}",
+                        "scene_index": task["scene_index"],
+                        "total_scenes": total,
+                        "error": str(e),
+                    }
+
+            results = await asyncio.gather(*[_generate_one(t) for t in batch])
+            # Yield results sorted by scene_index within each batch
+            for result in sorted(results, key=lambda r: r["scene_index"]):
+                yield result
 
     async def _generate_scene_image(
         self,
@@ -383,7 +540,8 @@ OUTPUT REQUIREMENTS:
                     ),
                 )
 
-                response = self._client.models.generate_content(
+                response = await asyncio.to_thread(
+                    self._client.models.generate_content,
                     model=model_name,
                     contents=[types.Content(role="user", parts=content_parts)],
                     config=config,
@@ -419,7 +577,8 @@ OUTPUT REQUIREMENTS:
         logger.info(f"🎨 Using Imagen text-only for scene {scene_number} with aspect ratio {aspect_ratio}")
 
         try:
-            response = self._client.models.generate_images(
+            response = await asyncio.to_thread(
+                self._client.models.generate_images,
                 model=IMAGEN_MODEL,
                 prompt=prompt,
                 config=types.GenerateImagesConfig(
@@ -554,6 +713,8 @@ OUTPUT REQUIREMENTS:
         style_notes: str | None = None,
         aspect_ratio: str = "9:16",
         camera_device: str = "iphone_16_pro_max",
+        is_broll: bool = False,
+        broll_type: str | None = None,
     ) -> str:
         """Build a highly detailed prompt including all character, product, camera, lighting details."""
 
@@ -681,8 +842,46 @@ OUTPUT REQUIREMENTS:
             "",
         ])
 
-        # Add detailed character DNA if available
-        if avatar_dna:
+        # B-roll scenes: replace character identity with B-roll directive
+        if is_broll:
+            parts.extend([
+                "########################################",
+                "# B-ROLL SCENE DIRECTIVE",
+                "########################################",
+                "This is a B-ROLL insert shot — NO human character should appear.",
+                "",
+            ])
+
+            # Type-specific B-roll directives
+            broll_directives = {
+                "product_closeup": (
+                    "B-ROLL TYPE: PRODUCT CLOSE-UP\n"
+                    "Extreme close-up of product — texture, label, material detail. "
+                    "Macro photography. Product fills 80%+ of frame. Studio-quality product detail shot."
+                ),
+                "environment": (
+                    "B-ROLL TYPE: ENVIRONMENT\n"
+                    "Atmospheric establishing shot. Natural light, textures, mood-setting composition. "
+                    "NO person visible in frame. Environmental beauty shot."
+                ),
+                "lifestyle_insert": (
+                    "B-ROLL TYPE: LIFESTYLE INSERT\n"
+                    "Product in use — anonymous hands only (NO face, NO identifiable person). "
+                    "Hands interacting with product on a surface. Lifestyle detail shot."
+                ),
+                "transition": (
+                    "B-ROLL TYPE: TRANSITION\n"
+                    "Abstract visual transition — soft focus, light flare, bokeh, color wash, or texture detail. "
+                    "NO person, NO product. Pure visual breather."
+                ),
+            }
+
+            directive = broll_directives.get(broll_type or "", "")
+            if directive:
+                parts.extend([directive, ""])
+
+        # Add detailed character DNA if available (skip for B-roll scenes)
+        elif avatar_dna:
             gender = getattr(avatar_dna, 'gender', '') or ''
             if not gender:
                 combined = f"{avatar_dna.face} {avatar_dna.body}".lower()
@@ -813,87 +1012,95 @@ OUTPUT REQUIREMENTS:
                 "- Correct scale relative to human hands/body",
                 "- Legible branding if visible in reference (but as image, NOT added text)",
                 "",
-                "########################################",
-                "# PHYSICAL REALITY CONSTRAINTS (CRITICAL)",
-                "########################################",
-                "########################################",
-                "# HUMAN ANATOMY — STRICT RULES (ZERO TOLERANCE)",
-                "########################################",
-                "",
-                "HAND COUNT (ABSOLUTELY CRITICAL):",
-                "✓ Each person has EXACTLY 2 hands — one LEFT hand, one RIGHT hand",
-                "✓ Each hand has EXACTLY 5 fingers: 1 thumb + 4 fingers",
-                "✓ Count every visible hand in the scene — must equal exactly 2 per person",
-                "❌ NEVER generate 3 or more hands on one person",
-                "❌ NEVER generate duplicate/mirrored hands",
-                "❌ NEVER show a hand growing from the wrong position on the body",
-                "❌ NEVER merge two hands into one or show fused fingers",
-                "❌ NEVER show phantom/ghost hands or translucent extra limbs",
-                "",
-                "ARM & HAND ATTACHMENT (CRITICAL):",
-                "✓ Left hand connects to left wrist → left forearm → left elbow → left upper arm → left shoulder",
-                "✓ Right hand connects to right wrist → right forearm → right elbow → right upper arm → right shoulder",
-                "✓ Every hand must be traceable back to its shoulder through a continuous arm",
-                "✓ Arms must have natural bend at elbows — no rubber/noodle arms",
-                "❌ NEVER show a hand without a visible arm connection",
-                "❌ NEVER show arms crossing through the body unnaturally",
-                "❌ NEVER show arms bending backward at the elbow",
-                "",
-                "FINGER ANATOMY (STRICT):",
-                "✓ Thumb: Shorter, thicker, on the side of the hand, opposable",
-                "✓ Index finger: Next to thumb, used for pointing and pressing",
-                "✓ Middle finger: Longest finger",
-                "✓ Ring finger: Slightly shorter than middle",
-                "✓ Pinky: Shortest finger on the outside",
-                "✓ All fingers must have 3 visible joints (knuckles) — thumb has 2",
-                "✓ Fingernails on the TOP of each fingertip, facing outward",
-                "✓ Natural skin creases at each finger joint",
-                "❌ NEVER generate 6+ fingers, fused fingers, or stub fingers",
-                "❌ NEVER show fingers bending backward beyond natural range",
-                "❌ NEVER show fingernails on the wrong side of fingers",
-                "",
-                "########################################",
-                "# NATURAL HUMAN BEHAVIOR & MICRO-EXPRESSIONS",
-                "########################################",
-                "",
-                "FACIAL EXPRESSION REALISM (CRITICAL FOR NON-AI LOOK):",
-                "✓ Eyes must look ALIVE: natural moisture, visible blood vessels in sclera, light reflections",
-                "✓ Natural slight asymmetry in facial expression (real faces are never perfectly symmetrical)",
-                "✓ Micro-expressions matching the emotional context of the scene",
-                "✓ Natural blink-ready eyes — eyelids at natural resting position, not wide-open staring",
-                "✓ Subtle crow's feet or laugh lines when smiling — real expressions engage the whole face",
-                "✓ Mouth position matches the emotional state (slightly open when speaking, relaxed when neutral)",
-                "✓ Natural teeth visibility — imperfect, slightly varied, not a perfect white row",
-                "❌ NEVER generate a frozen/dead stare — eyes must convey life and intention",
-                "❌ NEVER generate a plastic mannequin smile — fake, symmetrical, lifeless",
-                "❌ NEVER generate perfectly uniform teeth like a dental model",
-                "❌ NEVER generate glossy/waxy skin — real skin has pores, texture, slight imperfections",
-                "",
-                "BODY LANGUAGE & POSTURE (NATURAL HUMAN MOVEMENT):",
-                "✓ Weight distribution: Body leans naturally, not perfectly centered like a mannequin",
-                "✓ Shoulder height: Naturally slightly uneven — one slightly higher than other",
-                "✓ Head tilt: Slight natural tilt matching the conversational context",
-                "✓ Neck: Visible tendons and muscles when head is turned, natural throat movement",
-                "✓ Hands at rest: Fingers naturally curled, not stiff and straight like a robot",
-                "✓ Standing/sitting: Natural slouch or lean — NOT rigid military posture",
-                "✓ Gesturing: When one hand gestures, the other hand remains in a natural resting position",
-                "❌ NEVER generate a stiff T-pose or unnatural straight posture",
-                "❌ NEVER generate both arms doing exactly the same thing (mirror effect)",
-                "❌ NEVER generate a person standing perfectly centered and symmetrical",
-                "",
-                "NATURAL OBJECT INTERACTION (CRITICAL):",
-                "✓ When holding a product: One hand grips it naturally, other hand supports OR rests naturally",
-                "✓ Product weight affects hand tension — heavier items show more grip pressure",
-                "✓ Wrist angle is comfortable and ergonomic for the action being performed",
-                "✓ Product is at a natural height relative to the body for the action",
-                "✓ If showing product to camera: Hold at chest height, arm bent at ~90°, relaxed grip",
-                "✓ If using product: Fingers positioned for the specific action (pressing, squeezing, pouring)",
-                "✓ Palm and fingers make full contact with product surface — no hover-grip",
-                "❌ NEVER show product floating or levitating near hands without contact",
-                "❌ NEVER show fingers phasing through the product",
-                "❌ NEVER show product at impossible angles relative to hand grip",
-                "❌ NEVER show both hands holding the same product in the same way (clone grip)",
-                "",
+            ])
+
+            # Physical reality / human anatomy constraints — only for non-B-roll scenes
+            if not is_broll:
+                parts.extend([
+                    "########################################",
+                    "# PHYSICAL REALITY CONSTRAINTS (CRITICAL)",
+                    "########################################",
+                    "########################################",
+                    "# HUMAN ANATOMY — STRICT RULES (ZERO TOLERANCE)",
+                    "########################################",
+                    "",
+                    "HAND COUNT (ABSOLUTELY CRITICAL):",
+                    "✓ Each person has EXACTLY 2 hands — one LEFT hand, one RIGHT hand",
+                    "✓ Each hand has EXACTLY 5 fingers: 1 thumb + 4 fingers",
+                    "✓ Count every visible hand in the scene — must equal exactly 2 per person",
+                    "❌ NEVER generate 3 or more hands on one person",
+                    "❌ NEVER generate duplicate/mirrored hands",
+                    "❌ NEVER show a hand growing from the wrong position on the body",
+                    "❌ NEVER merge two hands into one or show fused fingers",
+                    "❌ NEVER show phantom/ghost hands or translucent extra limbs",
+                    "",
+                    "ARM & HAND ATTACHMENT (CRITICAL):",
+                    "✓ Left hand connects to left wrist → left forearm → left elbow → left upper arm → left shoulder",
+                    "✓ Right hand connects to right wrist → right forearm → right elbow → right upper arm → right shoulder",
+                    "✓ Every hand must be traceable back to its shoulder through a continuous arm",
+                    "✓ Arms must have natural bend at elbows — no rubber/noodle arms",
+                    "❌ NEVER show a hand without a visible arm connection",
+                    "❌ NEVER show arms crossing through the body unnaturally",
+                    "❌ NEVER show arms bending backward at the elbow",
+                    "",
+                    "FINGER ANATOMY (STRICT):",
+                    "✓ Thumb: Shorter, thicker, on the side of the hand, opposable",
+                    "✓ Index finger: Next to thumb, used for pointing and pressing",
+                    "✓ Middle finger: Longest finger",
+                    "✓ Ring finger: Slightly shorter than middle",
+                    "✓ Pinky: Shortest finger on the outside",
+                    "✓ All fingers must have 3 visible joints (knuckles) — thumb has 2",
+                    "✓ Fingernails on the TOP of each fingertip, facing outward",
+                    "✓ Natural skin creases at each finger joint",
+                    "❌ NEVER generate 6+ fingers, fused fingers, or stub fingers",
+                    "❌ NEVER show fingers bending backward beyond natural range",
+                    "❌ NEVER show fingernails on the wrong side of fingers",
+                    "",
+                    "########################################",
+                    "# NATURAL HUMAN BEHAVIOR & MICRO-EXPRESSIONS",
+                    "########################################",
+                    "",
+                    "FACIAL EXPRESSION REALISM (CRITICAL FOR NON-AI LOOK):",
+                    "✓ Eyes must look ALIVE: natural moisture, visible blood vessels in sclera, light reflections",
+                    "✓ Natural slight asymmetry in facial expression (real faces are never perfectly symmetrical)",
+                    "✓ Micro-expressions matching the emotional context of the scene",
+                    "✓ Natural blink-ready eyes — eyelids at natural resting position, not wide-open staring",
+                    "✓ Subtle crow's feet or laugh lines when smiling — real expressions engage the whole face",
+                    "✓ Mouth position matches the emotional state (slightly open when speaking, relaxed when neutral)",
+                    "✓ Natural teeth visibility — imperfect, slightly varied, not a perfect white row",
+                    "❌ NEVER generate a frozen/dead stare — eyes must convey life and intention",
+                    "❌ NEVER generate a plastic mannequin smile — fake, symmetrical, lifeless",
+                    "❌ NEVER generate perfectly uniform teeth like a dental model",
+                    "❌ NEVER generate glossy/waxy skin — real skin has pores, texture, slight imperfections",
+                    "",
+                    "BODY LANGUAGE & POSTURE (NATURAL HUMAN MOVEMENT):",
+                    "✓ Weight distribution: Body leans naturally, not perfectly centered like a mannequin",
+                    "✓ Shoulder height: Naturally slightly uneven — one slightly higher than other",
+                    "✓ Head tilt: Slight natural tilt matching the conversational context",
+                    "✓ Neck: Visible tendons and muscles when head is turned, natural throat movement",
+                    "✓ Hands at rest: Fingers naturally curled, not stiff and straight like a robot",
+                    "✓ Standing/sitting: Natural slouch or lean — NOT rigid military posture",
+                    "✓ Gesturing: When one hand gestures, the other hand remains in a natural resting position",
+                    "❌ NEVER generate a stiff T-pose or unnatural straight posture",
+                    "❌ NEVER generate both arms doing exactly the same thing (mirror effect)",
+                    "❌ NEVER generate a person standing perfectly centered and symmetrical",
+                    "",
+                    "NATURAL OBJECT INTERACTION (CRITICAL):",
+                    "✓ When holding a product: One hand grips it naturally, other hand supports OR rests naturally",
+                    "✓ Product weight affects hand tension — heavier items show more grip pressure",
+                    "✓ Wrist angle is comfortable and ergonomic for the action being performed",
+                    "✓ Product is at a natural height relative to the body for the action",
+                    "✓ If showing product to camera: Hold at chest height, arm bent at ~90°, relaxed grip",
+                    "✓ If using product: Fingers positioned for the specific action (pressing, squeezing, pouring)",
+                    "✓ Palm and fingers make full contact with product surface — no hover-grip",
+                    "❌ NEVER show product floating or levitating near hands without contact",
+                    "❌ NEVER show fingers phasing through the product",
+                    "❌ NEVER show product at impossible angles relative to hand grip",
+                    "❌ NEVER show both hands holding the same product in the same way (clone grip)",
+                    "",
+                ])
+
+            parts.extend([
                 "########################################",
                 "# PRODUCT LABEL & BRANDING CONSISTENCY",
                 "########################################",
@@ -910,29 +1117,33 @@ OUTPUT REQUIREMENTS:
                 "❌ NEVER change the product shape, size ratio, or proportions from reference",
                 "❌ NEVER mirror/flip the label orientation incorrectly",
                 "",
-                "########################################",
-                "# ANTI-AI ARTIFACTS — ELIMINATE UNCANNY VALLEY",
-                "########################################",
-                "This must look like a REAL photograph captured by a phone camera, NOT an AI generation.",
-                "",
-                "ELIMINATE THESE COMMON AI TELLS:",
-                "✓ Add subtle image noise/grain matching phone camera quality",
-                "✓ Include natural depth-of-field blur (background slightly soft, subject sharp)",
-                "✓ Natural color grading — NOT oversaturated or HDR-looking",
-                "✓ Subtle lens aberrations at frame edges (natural vignette)",
-                "✓ Fabric wrinkles and folds where clothing bends at joints",
-                "✓ Natural hair flyaways and stray strands (not perfectly groomed CG hair)",
-                "✓ Skin imperfections: visible pores, subtle blemishes, natural color variation",
-                "✓ Natural shadow softness — NOT hard CG shadows with sharp edges",
-                "❌ NEVER generate overly smooth/perfect skin (AI giveaway)",
-                "❌ NEVER generate perfectly symmetrical features (AI giveaway)",
-                "❌ NEVER generate overly saturated colors (AI giveaway)",
-                "❌ NEVER generate plasticky/waxy texture on any surface (AI giveaway)",
-                "❌ NEVER generate perfectly sharp everything — real cameras have depth of field",
-                "❌ NEVER generate a background that looks like a stock photo or CG environment",
-                "❌ NEVER generate jewelry, accessories, or clothing details not in the reference",
-                "",
             ])
+
+        # Anti-AI artifacts section (applies to all scenes including B-roll)
+        parts.extend([
+            "########################################",
+            "# ANTI-AI ARTIFACTS — ELIMINATE UNCANNY VALLEY",
+            "########################################",
+            "This must look like a REAL photograph captured by a phone camera, NOT an AI generation.",
+            "",
+            "ELIMINATE THESE COMMON AI TELLS:",
+            "✓ Add subtle image noise/grain matching phone camera quality",
+            "✓ Include natural depth-of-field blur (background slightly soft, subject sharp)",
+            "✓ Natural color grading — NOT oversaturated or HDR-looking",
+            "✓ Subtle lens aberrations at frame edges (natural vignette)",
+            "✓ Fabric wrinkles and folds where clothing bends at joints",
+            "✓ Natural hair flyaways and stray strands (not perfectly groomed CG hair)",
+            "✓ Skin imperfections: visible pores, subtle blemishes, natural color variation",
+            "✓ Natural shadow softness — NOT hard CG shadows with sharp edges",
+            "❌ NEVER generate overly smooth/perfect skin (AI giveaway)",
+            "❌ NEVER generate perfectly symmetrical features (AI giveaway)",
+            "❌ NEVER generate overly saturated colors (AI giveaway)",
+            "❌ NEVER generate plasticky/waxy texture on any surface (AI giveaway)",
+            "❌ NEVER generate perfectly sharp everything — real cameras have depth of field",
+            "❌ NEVER generate a background that looks like a stock photo or CG environment",
+            "❌ NEVER generate jewelry, accessories, or clothing details not in the reference",
+            "",
+        ])
 
         # Add style notes
         if style_notes:
@@ -982,6 +1193,46 @@ OUTPUT REQUIREMENTS:
 
         return "\n".join(parts)
 
+    @staticmethod
+    def _compress_image(image_bytes: bytes, mime_type: str, max_bytes: int = MAX_REF_IMAGE_BYTES) -> tuple[bytes, str]:
+        """Compress an image to JPEG if it exceeds max_bytes. Returns (bytes, mime_type)."""
+        if len(image_bytes) <= max_bytes:
+            return image_bytes, mime_type
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(image_bytes))
+
+            # Resize if very large (>2048px on any side)
+            max_dim = 2048
+            if max(img.size) > max_dim:
+                img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+
+            # Convert to RGB for JPEG (drop alpha)
+            if img.mode in ("RGBA", "P", "LA"):
+                img = img.convert("RGB")
+
+            # Binary search for best JPEG quality that fits under max_bytes
+            quality = 85
+            for q in (85, 75, 60, 45, 30):
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=q, optimize=True)
+                if buf.tell() <= max_bytes:
+                    quality = q
+                    break
+                quality = q
+
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            compressed = buf.getvalue()
+            logger.info(
+                f"🗜️ Compressed ref image: {len(image_bytes):,} → {len(compressed):,} bytes "
+                f"(JPEG q={quality}, {img.size[0]}x{img.size[1]})"
+            )
+            return compressed, "image/jpeg"
+        except Exception as e:
+            logger.warning(f"Compression failed, using original: {e}")
+            return image_bytes, mime_type
+
     async def _load_all_images(self, image_urls: list[str]) -> list[dict]:
         """Load multiple images and return list of image data dicts."""
         loaded = []
@@ -992,8 +1243,11 @@ OUTPUT REQUIREMENTS:
         return loaded
 
     async def _load_image(self, image_url: str) -> dict | None:
-        """Load an image from local path or URL."""
+        """Load an image from local path or URL, compressing large images for API efficiency."""
         try:
+            image_bytes: bytes | None = None
+            mime_type: str = "image/jpeg"
+
             if image_url.startswith('/uploads/'):
                 # Local file
                 backend_dir = Path(__file__).resolve().parents[2]
@@ -1010,8 +1264,6 @@ OUTPUT REQUIREMENTS:
                         '.png': 'image/png',
                         '.webp': 'image/webp',
                     }.get(ext, 'image/jpeg')
-                    logger.info(f"✅ Loaded local: {file_path} ({len(image_bytes)} bytes)")
-                    return {"bytes": image_bytes, "mime_type": mime_type}
                 else:
                     logger.warning(f"❌ File not found: {file_path}")
                     return None
@@ -1024,12 +1276,23 @@ OUTPUT REQUIREMENTS:
                     resp.raise_for_status()
                     content_type = resp.headers.get('content-type', 'image/jpeg')
                     mime_type = content_type.split(';')[0].strip()
-                    logger.info(f"✅ Downloaded: {image_url[:50]}... ({len(resp.content)} bytes)")
-                    return {"bytes": resp.content, "mime_type": mime_type}
+                    image_bytes = resp.content
 
             else:
                 logger.warning(f"❌ Unsupported URL format: {image_url}")
                 return None
+
+            if image_bytes is None:
+                return None
+
+            original_size = len(image_bytes)
+            # Compress large reference images to reduce API payload
+            image_bytes, mime_type = self._compress_image(image_bytes, mime_type)
+            logger.info(
+                f"✅ Loaded: {image_url[:60]}... "
+                f"({original_size:,} → {len(image_bytes):,} bytes, {mime_type})"
+            )
+            return {"bytes": image_bytes, "mime_type": mime_type}
 
         except Exception as e:
             logger.warning(f"❌ Failed to load {image_url}: {e}")

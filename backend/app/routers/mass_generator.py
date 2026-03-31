@@ -8,7 +8,10 @@ Provides endpoints for the step-by-step video generation wizard:
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+import os
+import tempfile
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
 from app.middleware.auth import AuthUser, get_current_user
@@ -25,6 +28,7 @@ from app.models.production_bible import (
 from app.models.schemas import AvatarDNA
 from app.services.product_vision_service import ProductVisionService
 from app.services.production_bible_service import ProductionBibleService
+from app.services.script_intelligence_service import ScriptIntelligenceService
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,9 @@ class GenerateScriptRequest(BaseModel):
     """Request to generate script from Production Bible."""
 
     bible: ProductionBible
+    include_broll: bool = True
+    competitor_analysis: str | None = None
+    own_script_analysis: str | None = None
 
 
 class GenerateScriptResponse(BaseModel):
@@ -89,6 +96,20 @@ class ExpandBriefResponse(BaseModel):
 
     success: bool
     brief: CreativeBrief | None = None
+    error: str | None = None
+
+
+class AnalyzeOwnScriptRequest(BaseModel):
+    """Request to analyze a user-provided script."""
+
+    script_text: str = Field(min_length=20, max_length=10000)
+
+
+class AnalysisResponse(BaseModel):
+    """Response with analysis results (shared by video and script analysis)."""
+
+    success: bool
+    analysis: dict | None = None
     error: str | None = None
 
 
@@ -251,7 +272,12 @@ async def generate_script(request: GenerateScriptRequest, current_user: AuthUser
 
     try:
         bible_service = ProductionBibleService(api_key=settings.GEMINI_API_KEY)
-        script = await bible_service.generate_script(bible=request.bible)
+        script = await bible_service.generate_script(
+            bible=request.bible,
+            include_broll=request.include_broll,
+            competitor_analysis=request.competitor_analysis,
+            own_script_analysis=request.own_script_analysis,
+        )
 
         return GenerateScriptResponse(
             success=True,
@@ -271,6 +297,96 @@ async def generate_script(request: GenerateScriptRequest, current_user: AuthUser
             success=False,
             error=f"Generation failed: {str(e)}",
         )
+
+
+@router.post("/analyze-competitor-video", response_model=AnalysisResponse)
+async def analyze_competitor_video(
+    video: UploadFile = File(...),
+    current_user: AuthUser = Depends(get_current_user),
+) -> AnalysisResponse:
+    """Analyze a competitor video using Gemini File API + Vision.
+
+    Uploads the video to Gemini, transcribes it, and extracts
+    script structure, hook/CTA analysis, pacing, and techniques.
+    """
+    ALLOWED_MIME_TYPES = {"video/mp4", "video/mpeg", "video/mov", "video/avi", "video/webm", "video/quicktime"}
+    MAX_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
+
+    if video.content_type not in ALLOWED_MIME_TYPES:
+        return AnalysisResponse(
+            success=False,
+            error=f"Unsupported video format: {video.content_type}. Accepted: mp4, mpeg, mov, avi, webm",
+        )
+
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+    tmp_path = None
+    try:
+        # Save to temp file
+        suffix = os.path.splitext(video.filename or "video.mp4")[1] or ".mp4"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            total_size = 0
+            while chunk := await video.read(1024 * 1024):  # 1MB chunks
+                total_size += len(chunk)
+                if total_size > MAX_SIZE_BYTES:
+                    return AnalysisResponse(
+                        success=False,
+                        error="Video file too large. Maximum size is 100MB.",
+                    )
+                tmp.write(chunk)
+
+        logger.info(f"Saved competitor video to {tmp_path} ({total_size / 1024 / 1024:.1f}MB)")
+
+        service = ScriptIntelligenceService(api_key=settings.GEMINI_API_KEY)
+        analysis = await service.analyze_competitor_video(
+            video_path=tmp_path,
+            mime_type=video.content_type or "video/mp4",
+        )
+
+        return AnalysisResponse(success=True, analysis=analysis)
+
+    except (ValueError, TimeoutError) as e:
+        logger.warning(f"Video analysis error: {e}")
+        return AnalysisResponse(success=False, error=str(e))
+
+    except Exception as e:
+        logger.exception(f"Video analysis failed: {e}")
+        return AnalysisResponse(success=False, error=f"Analysis failed: {str(e)}")
+
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@router.post("/analyze-own-script", response_model=AnalysisResponse)
+async def analyze_own_script(
+    request: AnalyzeOwnScriptRequest,
+    current_user: AuthUser = Depends(get_current_user),
+) -> AnalysisResponse:
+    """Analyze a user-provided script for structure, strengths, and improvements.
+
+    Returns detailed scoring and actionable feedback.
+    """
+    logger.info("Analyzing user-provided script")
+
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+    try:
+        service = ScriptIntelligenceService(api_key=settings.GEMINI_API_KEY)
+        analysis = await service.analyze_own_script(script_text=request.script_text)
+
+        return AnalysisResponse(success=True, analysis=analysis)
+
+    except ValueError as e:
+        logger.warning(f"Script analysis error: {e}")
+        return AnalysisResponse(success=False, error=str(e))
+
+    except Exception as e:
+        logger.exception(f"Script analysis failed: {e}")
+        return AnalysisResponse(success=False, error=f"Analysis failed: {str(e)}")
 
 
 @router.get("/health")

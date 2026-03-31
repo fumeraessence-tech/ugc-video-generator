@@ -311,6 +311,7 @@ class VideoPipeline:
                         words_per_minute=request.words_per_minute,
                         language=getattr(request, 'language', 'en'),
                         camera_device=getattr(request, 'camera_device', 'iphone_16_pro_max'),
+                        include_broll=getattr(request, 'include_broll', True),
                     )
 
                 script: Script = await self._run_with_retry("script_generation", _gen_script)
@@ -359,6 +360,14 @@ class VideoPipeline:
                         continue
                     img_url = sb_item.get("image_url", "")
                     scene_num = sb_item.get("scene_number", "?")
+
+                    # B-roll scenes don't need avatar consistency scoring
+                    matching_scenes = [s for s in script.scenes if str(s.scene_number) == str(scene_num)]
+                    if matching_scenes and getattr(matching_scenes[0], 'is_broll', False):
+                        consistency_scores.append({"scene": scene_num, "score": 1.0})
+                        logger.info("Scene %s is B-roll, auto-scoring 1.0", scene_num)
+                        continue
+
                     if not img_url or not img_url.startswith("/uploads/"):
                         consistency_scores.append({"scene": scene_num, "score": 0.85})
                         continue
@@ -475,11 +484,32 @@ class VideoPipeline:
                     f"Generating video for scene {i + 1}/{total_scenes}...",
                 )
 
-                async def _gen_video(p=prompt, idx=i):
-                    return await self._video_service.generate_video(
-                        scene_prompt=p,
-                        duration=int(script.scenes[idx].duration_seconds) if idx < len(script.scenes) else 5,
+                # Check if this scene is B-roll
+                scene_is_broll = False
+                scene_broll_type = None
+                if i < len(script.scenes):
+                    scene_obj = script.scenes[i]
+                    scene_is_broll = getattr(scene_obj, 'is_broll', False)
+                    broll_type_val = getattr(scene_obj, 'broll_type', None)
+                    scene_broll_type = broll_type_val.value if broll_type_val else None
+
+                async def _gen_video(p=prompt, idx=i, _is_broll=scene_is_broll, _broll_type=scene_broll_type):
+                    results = await self._video_service.generate_scene_videos(
+                        scene_number=idx + 1,
+                        prompt=p,
+                        num_clips=1,
+                        duration_seconds=int(script.scenes[idx].duration_seconds) if idx < len(script.scenes) else 5,
+                        is_broll=_is_broll,
+                        broll_type=_broll_type,
                     )
+                    # Return first result in legacy format for compatibility
+                    if results and results[0].get("status") == "completed":
+                        return {
+                            "video_url": results[0].get("video_url", ""),
+                            "original_uri": results[0].get("original_uri", ""),
+                            "status": "completed",
+                        }
+                    return {"video_url": "", "status": "failed"}
 
                 clip = await self._run_with_retry(f"video_scene_{i+1}", _gen_video)
                 video_clips.append(clip)
@@ -548,8 +578,15 @@ class VideoPipeline:
             }
 
             for scene in script.scenes:
-                if scene.dialogue.strip():
-                    async def _gen_audio(text=scene.dialogue, vc=voice_config):
+                # Determine TTS text: B-roll scenes prefer voiceover_text
+                if getattr(scene, 'is_broll', False):
+                    voiceover = getattr(scene, 'voiceover_text', '').strip()
+                    tts_text = voiceover if voiceover else scene.dialogue.strip()
+                else:
+                    tts_text = scene.dialogue.strip()
+
+                if tts_text:
+                    async def _gen_audio(text=tts_text, vc=voice_config):
                         return await self._audio_service.generate_tts(text=text, voice_config=vc)
                     audio = await self._run_with_retry(f"audio_{scene.scene_number}", _gen_audio)
                     audio_clips.append(audio)

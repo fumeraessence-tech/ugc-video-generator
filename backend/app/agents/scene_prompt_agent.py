@@ -157,8 +157,18 @@ class ScenePromptAgent:
             f"key: {lighting_setup.key_intensity}, fill: {lighting_setup.fill_intensity}, rim: {lighting_setup.rim_intensity}"
         )
 
-        character_block = self._build_character_block(avatar_dna) if avatar_dna else "No specific character -- use a generic presenter."
-        product_block = self._build_product_block(product_name, product_images) if product_name or product_images else ""
+        # B-roll scenes: skip character block entirely, conditionally skip product block
+        if getattr(scene, 'is_broll', False) and scene.is_broll:
+            character_block = "NO CHARACTER — B-roll insert shot"
+            broll_type = getattr(scene, 'broll_type', None)
+            # Only product_closeup and lifestyle_insert B-roll types keep the product block
+            if broll_type and broll_type.value in ("product_closeup", "lifestyle_insert"):
+                product_block = self._build_product_block(product_name, product_images) if product_name or product_images else ""
+            else:
+                product_block = ""
+        else:
+            character_block = self._build_character_block(avatar_dna) if avatar_dna else "No specific character -- use a generic presenter."
+            product_block = self._build_product_block(product_name, product_images) if product_name or product_images else ""
 
         # Build base prompt
         base_prompt = _MASTER_TEMPLATE.format(
@@ -175,8 +185,9 @@ class ScenePromptAgent:
         )
 
         # Enhance with strict anti-artifact constraints
+        # B-roll scenes should not carry avatar identity constraints
         avatar_dict = None
-        if avatar_dna:
+        if avatar_dna and not getattr(scene, 'is_broll', False):
             avatar_dict = {
                 'face': avatar_dna.face,
                 'skin': avatar_dna.skin,

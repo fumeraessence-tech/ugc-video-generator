@@ -17,6 +17,16 @@ class SceneType(str, Enum):
     application = "application"
     testimonial = "testimonial"
     cta = "cta"
+    broll = "broll"
+
+
+class BRollType(str, Enum):
+    """Types of B-roll insert shots."""
+
+    product_closeup = "product_closeup"
+    environment = "environment"
+    lifestyle_insert = "lifestyle_insert"
+    transition = "transition"
 
 
 class ProductVisibility(str, Enum):
@@ -104,6 +114,9 @@ class ScriptScene(BaseModel):
     product_visibility: ProductVisibility = ProductVisibility.none
     background_setting: BackgroundSetting = BackgroundSetting.modern_bedroom
     camera_notes: str = ""
+    is_broll: bool = False
+    broll_type: BRollType | None = None
+    voiceover_text: str = ""
 
 
 class Script(BaseModel):
@@ -138,6 +151,7 @@ class GenerationRequest(BaseModel):
     language: str = "en"  # Script/TTS language code (en, hi, ta, te, bn, mr, gu, kn, pa, ml)
     music_config: dict | None = None  # {enabled: bool, category: str, volume: int}
     camera_device: str = "iphone_16_pro_max"  # Camera device for prompt generation
+    include_broll: bool = True  # Auto-insert B-roll scenes between main scenes
     auto_approve: bool = True  # Automatically approve storyboard (skip manual review)
 
 

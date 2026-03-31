@@ -1,8 +1,10 @@
 """Storyboard API endpoints with regeneration support."""
 
+import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 
 from app.middleware.auth import AuthUser, get_current_user
 from app.middleware.usage_tracker import require_quota
@@ -74,6 +76,80 @@ async def generate_storyboard(
             status_code=500,
             detail=f"Storyboard generation failed: {str(e)}",
         ) from e
+
+
+@router.post("/generate-stream")
+async def generate_storyboard_stream(
+    request: GenerateStoryboardRequest,
+    current_user: AuthUser = Depends(get_current_user),
+    _remaining: int = Depends(require_quota("storyboard")),
+) -> EventSourceResponse:
+    """Stream storyboard generation — one SSE event per scene as it completes."""
+    if not request.script or not request.script.scenes:
+        raise HTTPException(status_code=400, detail="Script with scenes is required")
+
+    # Extract all inputs before entering the async generator
+    script = request.script
+    avatar_data = request.avatar_data
+    avatar_reference_images = request.avatar_reference_images
+    product_images = request.product_images
+    product_name = request.product_name
+    product_dna = request.product_dna
+    aspect_ratio = request.aspect_ratio
+    agent_api_key = request.api_key
+
+    async def event_generator():
+        image_service = ImageService(api_key=agent_api_key)
+
+        # Resolve avatar_dna from avatar_data
+        avatar_dna = None
+        if avatar_data and avatar_data.get("dna"):
+            dna_data = avatar_data["dna"]
+            avatar_dna = AvatarDNA(**dna_data) if isinstance(dna_data, dict) else None
+        elif avatar_data:
+            avatar_dna = AvatarDNA(**avatar_data) if isinstance(avatar_data, dict) else None
+
+        refs_by_angle = None
+        if avatar_dna and avatar_dna.reference_images_by_angle:
+            refs_by_angle = avatar_dna.reference_images_by_angle
+
+        yield {
+            "event": "started",
+            "data": json.dumps({
+                "total_scenes": len(script.scenes),
+                "message": "Storyboard generation started",
+            }),
+        }
+
+        try:
+            async for scene_result in image_service.generate_storyboard_streaming(
+                script=script,
+                avatar_dna=avatar_dna,
+                avatar_reference_images=avatar_reference_images,
+                reference_images_by_angle=refs_by_angle,
+                product_name=product_name,
+                product_images=product_images,
+                product_dna=product_dna,
+                aspect_ratio=aspect_ratio,
+            ):
+                yield {
+                    "event": "scene",
+                    "data": json.dumps(scene_result),
+                }
+        except Exception as e:
+            logger.exception("Streaming storyboard generation failed")
+            yield {
+                "event": "error",
+                "data": json.dumps({"message": str(e)}),
+            }
+            return
+
+        yield {
+            "event": "complete",
+            "data": json.dumps({"message": "All scenes generated"}),
+        }
+
+    return EventSourceResponse(event_generator())
 
 
 @router.post("/regenerate-scene")

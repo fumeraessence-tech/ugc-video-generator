@@ -44,6 +44,8 @@ class VideoService:
         aspect_ratio: str = "9:16",
         model: str = "veo-3.1",
         generate_audio: bool = False,
+        is_broll: bool = False,
+        broll_type: str | None = None,
     ) -> list[dict]:
         """Generate multiple video clips for a single scene.
 
@@ -58,10 +60,23 @@ class VideoService:
             aspect_ratio: Video aspect ratio (9:16, 16:9, 1:1)
             model: Veo model to use
             generate_audio: Whether to generate audio with the video
+            is_broll: Whether this scene is B-roll (no avatar needed)
+            broll_type: Type of B-roll (product_closeup, environment, lifestyle_insert, transition)
 
         Returns:
             List of dicts with video_url, status, clip_number
         """
+        # B-roll reference image handling
+        if is_broll:
+            # B-roll scenes never use avatar references
+            avatar_images = None
+            logger.info(f"B-roll scene {scene_number} (type={broll_type}): skipping avatar references")
+
+            # Environment and transition B-roll don't need product references either
+            if broll_type in ("environment", "transition"):
+                product_images = None
+                logger.info(f"B-roll scene {scene_number}: also skipping product references for {broll_type}")
+
         if self._client is None:
             logger.warning("No Gemini API key -- returning mock videos")
             return [self._mock_video(scene_number, i + 1) for i in range(num_clips)]

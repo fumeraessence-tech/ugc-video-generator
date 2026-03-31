@@ -465,6 +465,9 @@ class ProductionBibleService:
     async def generate_script(
         self,
         bible: ProductionBible,
+        include_broll: bool = True,
+        competitor_analysis: str | None = None,
+        own_script_analysis: str | None = None,
     ) -> dict:
         """Generate the complete script from the Production Bible.
 
@@ -507,6 +510,103 @@ DIALOGUE PACING (CRITICAL for natural delivery):
 - Maximum {max_words_per_scene} words per scene (8-second max)
 - Each scene's word_count MUST respect this limit
 - Dialogue should flow naturally at this pace — not rushed, not dragging
+"""
+
+        # B-roll instructions
+        if include_broll:
+            prompt += """
+
+B-ROLL SCENES (IMPORTANT — interleave between main scenes):
+You MUST include 2-4 B-roll scenes interleaved between the main dialogue scenes.
+B-roll scenes are SHORT visual-only inserts (2-4 seconds) with NO dialogue.
+
+B-roll scene rules:
+- "is_broll": true
+- "scene_type": "broll"
+- "dialogue": "" (empty — NO spoken words)
+- "voiceover_text": optional short narration text (or empty)
+- "broll_type": one of "product_closeup", "environment", "lifestyle_insert", "transition"
+- "duration_seconds": 2 to 4 seconds
+- "character_action": "" (no character in B-roll)
+- "character_expression": "" (no character in B-roll)
+
+B-roll type guidelines:
+- product_closeup: Extreme macro close-up of the product — texture, label, material detail. Product fills 80%+ of frame.
+- environment: Atmospheric establishing shot — natural light, textures, mood. NO person visible.
+- lifestyle_insert: Hands using product, product on surface. Anonymous hands only (no face visible).
+- transition: Quick visual — soft focus, light flare, abstract texture, color wash.
+
+B-roll placement:
+- After the hook scene (product teaser)
+- Between problem and solution (environment/transition breather)
+- During or after demonstration (product close-up detail)
+- Before CTA (lifestyle insert or transition)
+
+For product_closeup and lifestyle_insert: set "product_visibility": "prominent"
+For environment and transition: set "product_visibility": "none"
+
+Example B-roll scene:
+{
+  "scene_number": "1.2",
+  "scene_type": "broll",
+  "is_broll": true,
+  "broll_type": "product_closeup",
+  "duration_seconds": 3,
+  "dialogue": "",
+  "voiceover_text": "",
+  "character_action": "",
+  "character_expression": "",
+  "product_visibility": "prominent",
+  "product_action": "Extreme close-up of product label and texture",
+  "camera": {
+    "shot_type": "extreme_close_up",
+    "angle": "top_down",
+    "movement": "slow_push",
+    "focus": "product"
+  },
+  "lighting": {
+    "setup": "natural_window",
+    "mood": "warm"
+  },
+  "audio_notes": "Ambient sound only, no dialogue"
+}
+"""
+
+        # Append optional analysis context (competitor video / own script)
+        if competitor_analysis:
+            prompt += f"""
+
+═══════════════════════════════════════════════════════
+COMPETITOR VIDEO ANALYSIS (use as inspiration, do NOT copy):
+═══════════════════════════════════════════════════════
+{competitor_analysis}
+
+INSTRUCTIONS FOR USING COMPETITOR ANALYSIS:
+- Study their hook strategy and create something BETTER
+- Note their pacing and match or exceed it for this platform
+- Identify what works in their structure and adapt the approach
+- Avoid their weaknesses — your script should be strictly superior
+- Do NOT plagiarize dialogue — create original content inspired by their techniques
+- Use their strengths as a benchmark, not a template
+"""
+
+        if own_script_analysis:
+            prompt += f"""
+
+═══════════════════════════════════════════════════════
+USER'S OWN SCRIPT ANALYSIS (refine and improve this script):
+═══════════════════════════════════════════════════════
+{own_script_analysis}
+
+INSTRUCTIONS FOR USING SCRIPT ANALYSIS:
+- Preserve the user's core message, intent, and brand voice
+- Strengthen all identified weaknesses
+- Keep what works well from their script — don't change what already lands
+- Improve the hook based on the analysis feedback
+- Make dialogue more natural and conversational
+- Strengthen the CTA based on the analysis feedback
+- Fix any pacing issues identified
+- Maintain the user's preferred tone while enhancing delivery
 """
 
         try:

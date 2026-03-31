@@ -155,6 +155,10 @@ class ProductVisionService:
                     response_text = response_text[4:]
                 response_text = response_text.strip()
 
+            # Fix common LLM JSON issues: trailing commas before } or ]
+            import re
+            response_text = re.sub(r',\s*([}\]])', r'\1', response_text)
+
             data = json.loads(response_text)
 
             # Build ProductDNA from response
