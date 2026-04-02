@@ -10,12 +10,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Upload, FileSpreadsheet, Trash2, X, ImagePlus } from "lucide-react";
+import { Upload, FileSpreadsheet, Trash2, X, ImagePlus, CheckSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export function CsvUploadStep() {
   const {
-    csvRows, csvColumns, csvFileName, setCsvData, removeCsvRow, clearCsv,
+    csvRows, csvColumns, csvFileName, setCsvData, removeCsvRow, removeCsvRows, clearCsv,
     pinterestImages, addPinterestImages,
   } = useBulkGeneratorStore();
 
@@ -24,12 +24,43 @@ export function CsvUploadStep() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pinterestInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const bulkPinterestInputRef = useRef<HTMLInputElement>(null);
   const [uploadingPinterest, setUploadingPinterest] = useState<number | null>(null);
+
+  // Bulk selection state
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+
+  const allSelected = csvRows.length > 0 && selectedRows.size === csvRows.length;
+  const someSelected = selectedRows.size > 0 && selectedRows.size < csvRows.length;
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(csvRows.map((_, i) => i)));
+    }
+  };
+
+  const toggleRow = (idx: number) => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
+  };
+
+  const deleteSelected = () => {
+    removeCsvRows(selectedRows);
+    setSelectedRows(new Set());
+  };
 
   const uploadCsv = useCallback(
     async (file: File) => {
       setError(null);
-
       if (!file.name.toLowerCase().endsWith(".csv")) {
         setError("Please upload a .csv file.");
         return;
@@ -38,24 +69,21 @@ export function CsvUploadStep() {
         setError("CSV file too large (max 5MB).");
         return;
       }
-
       setUploading(true);
       try {
         const formData = new FormData();
         formData.append("file", file);
-
         const res = await fetch("/api/bulk-generator/upload-csv", {
           method: "POST",
           body: formData,
         });
-
         if (!res.ok) {
           const body = await res.json().catch(() => null);
           throw new Error(body?.detail ?? body?.error ?? `Upload failed (${res.status})`);
         }
-
         const data = await res.json();
         setCsvData(data.rows, data.columns, file.name);
+        setSelectedRows(new Set());
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed.");
       } finally {
@@ -90,17 +118,14 @@ export function CsvUploadStep() {
       try {
         const formData = new FormData();
         Array.from(files).forEach((f) => formData.append("files", f));
-
         const res = await fetch("/api/bulk-generator/upload-pinterest", {
           method: "POST",
           body: formData,
         });
-
         if (!res.ok) {
           const body = await res.json().catch(() => null);
           throw new Error(body?.detail ?? body?.error ?? `Upload failed (${res.status})`);
         }
-
         const data = await res.json();
         addPinterestImages(rowIndex, data.urls);
       } catch (err) {
@@ -110,6 +135,36 @@ export function CsvUploadStep() {
       }
     },
     [addPinterestImages]
+  );
+
+  // Bulk Pinterest: upload to all selected rows at once
+  const handleBulkPinterestUpload = useCallback(
+    async (files: FileList) => {
+      if (selectedRows.size === 0) return;
+      setUploadingPinterest(-1); // -1 = bulk
+      try {
+        const formData = new FormData();
+        Array.from(files).forEach((f) => formData.append("files", f));
+        const res = await fetch("/api/bulk-generator/upload-pinterest", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.detail ?? body?.error ?? `Upload failed (${res.status})`);
+        }
+        const data = await res.json();
+        // Add same Pinterest refs to ALL selected rows
+        for (const idx of selectedRows) {
+          addPinterestImages(idx, data.urls);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Bulk Pinterest upload failed.");
+      } finally {
+        setUploadingPinterest(null);
+      }
+    },
+    [addPinterestImages, selectedRows]
   );
 
   return (
@@ -157,7 +212,6 @@ export function CsvUploadStep() {
                 </div>
               </button>
 
-              {/* Example format */}
               <div className="rounded-lg border bg-muted/50 p-4">
                 <p className="mb-2 text-xs font-medium text-muted-foreground">Example CSV format:</p>
                 <pre className="text-xs font-mono text-muted-foreground">
@@ -171,7 +225,7 @@ Golden Oud,rich gold`}
             </>
           ) : (
             <>
-              {/* CSV loaded state */}
+              {/* CSV loaded header */}
               <div className="flex items-center justify-between rounded-lg border bg-muted/50 p-3">
                 <div className="flex items-center gap-3">
                   <FileSpreadsheet className="size-5 text-primary" />
@@ -179,7 +233,7 @@ Golden Oud,rich gold`}
                     <p className="text-sm font-medium">{csvFileName}</p>
                     <p className="text-xs text-muted-foreground">
                       {csvRows.length} product{csvRows.length === 1 ? "" : "s"} &middot;{" "}
-                      12 shots each &middot; {csvRows.length * 12}+ total images
+                      8 shots each &middot; {csvRows.length * 8} total images
                     </p>
                   </div>
                 </div>
@@ -189,11 +243,60 @@ Golden Oud,rich gold`}
                 </Button>
               </div>
 
+              {/* Bulk actions bar — visible when rows selected */}
+              {selectedRows.size > 0 && (
+                <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5">
+                  <CheckSquare className="size-4 text-primary" />
+                  <span className="text-sm font-medium">
+                    {selectedRows.size} product{selectedRows.size === 1 ? "" : "s"} selected
+                  </span>
+                  <div className="ml-auto flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => bulkPinterestInputRef.current?.click()}
+                      disabled={uploadingPinterest === -1}
+                    >
+                      <ImagePlus className="mr-1 size-3.5" />
+                      {uploadingPinterest === -1 ? "Uploading..." : "Add Pinterest to Selected"}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={deleteSelected}
+                    >
+                      <Trash2 className="mr-1 size-3.5" />
+                      Delete Selected
+                    </Button>
+                  </div>
+                  <input
+                    ref={bulkPinterestInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.length) handleBulkPinterestUpload(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
+              )}
+
               {/* Data table */}
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
+                      <th className="w-10 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                          onChange={toggleSelectAll}
+                          className="size-4 rounded border-muted-foreground/50 accent-primary"
+                        />
+                      </th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">#</th>
                       {csvColumns.map((col) => (
                         <th key={col} className="px-4 py-2 text-left font-medium text-muted-foreground">
@@ -205,55 +308,72 @@ Golden Oud,rich gold`}
                     </tr>
                   </thead>
                   <tbody>
-                    {csvRows.map((row, idx) => (
-                      <tr key={idx} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="px-4 py-2 text-muted-foreground">{idx + 1}</td>
-                        {csvColumns.map((col) => (
-                          <td key={col} className="px-4 py-2">
-                            {row[col] || <span className="text-muted-foreground">-</span>}
+                    {csvRows.map((row, idx) => {
+                      const isSelected = selectedRows.has(idx);
+                      const pCount = pinterestImages[String(idx)]?.length ?? 0;
+                      return (
+                        <tr
+                          key={idx}
+                          className={`border-b last:border-0 transition-colors ${
+                            isSelected ? "bg-primary/5" : "hover:bg-muted/30"
+                          }`}
+                        >
+                          <td className="w-10 px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleRow(idx)}
+                              className="size-4 rounded border-muted-foreground/50 accent-primary"
+                            />
                           </td>
-                        ))}
-                        <td className="px-4 py-2 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <td className="px-4 py-2 text-muted-foreground">{idx + 1}</td>
+                          {csvColumns.map((col) => (
+                            <td key={col} className="px-4 py-2">
+                              {row[col] || <span className="text-muted-foreground">-</span>}
+                            </td>
+                          ))}
+                          <td className="px-4 py-2 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7"
+                                disabled={uploadingPinterest === idx}
+                                onClick={() => pinterestInputRefs.current[idx]?.click()}
+                              >
+                                <ImagePlus className="size-3.5" />
+                              </Button>
+                              {pCount > 0 && (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                  {pCount} ref{pCount === 1 ? "" : "s"}
+                                </Badge>
+                              )}
+                              <input
+                                ref={(el) => { pinterestInputRefs.current[idx] = el; }}
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  if (e.target.files?.length) handlePinterestUpload(idx, e.target.files);
+                                  e.target.value = "";
+                                }}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-4 py-2 text-right">
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="size-7"
-                              disabled={uploadingPinterest === idx}
-                              onClick={() => pinterestInputRefs.current[idx]?.click()}
+                              className="size-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => removeCsvRow(idx)}
                             >
-                              <ImagePlus className="size-3.5" />
+                              <Trash2 className="size-3.5" />
                             </Button>
-                            {(pinterestImages[String(idx)]?.length ?? 0) > 0 && (
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                {pinterestImages[String(idx)].length} ref{pinterestImages[String(idx)].length === 1 ? "" : "s"}
-                              </Badge>
-                            )}
-                            <input
-                              ref={(el) => { pinterestInputRefs.current[idx] = el; }}
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              className="hidden"
-                              onChange={(e) => {
-                                if (e.target.files?.length) handlePinterestUpload(idx, e.target.files);
-                                e.target.value = "";
-                              }}
-                            />
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeCsvRow(idx)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

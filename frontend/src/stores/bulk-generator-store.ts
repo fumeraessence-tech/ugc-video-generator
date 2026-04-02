@@ -69,6 +69,7 @@ interface BulkGeneratorStore {
   csvFileName: string;
   setCsvData: (rows: CsvRow[], columns: string[], fileName: string) => void;
   removeCsvRow: (index: number) => void;
+  removeCsvRows: (indices: Set<number>) => void;
   clearCsv: () => void;
 
   // Step 3: Config
@@ -164,6 +165,8 @@ export const useBulkGeneratorStore = create<BulkGeneratorStore>()((set, get) => 
     set({ csvRows: rows, csvColumns: columns, csvFileName: fileName }),
   removeCsvRow: (index) =>
     set((s) => ({ csvRows: s.csvRows.filter((_, i) => i !== index) })),
+  removeCsvRows: (indices) =>
+    set((s) => ({ csvRows: s.csvRows.filter((_, i) => !indices.has(i)) })),
   clearCsv: () => set({ csvRows: [], csvColumns: [], csvFileName: "" }),
 
   // Step 3: Config
