@@ -166,59 +166,8 @@ export function Sidebar() {
 
       <Separator className="mx-2" />
 
-      {/* Chat History */}
-      {!isCollapsed && (
-        <>
-          <div className="flex items-center px-5 pt-3 pb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-              Recent Chats
-            </span>
-          </div>
-          <ScrollArea className="flex-1 px-2">
-            <div className="flex flex-col gap-0.5 py-1">
-              {chatHistory.length === 0 && (
-                <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-                  No chat history yet
-                </p>
-              )}
-              {chatHistory.map((chat) => {
-                const isActive = pathname === `/chat/${chat.id}`;
-                return (
-                  <div
-                    key={chat.id}
-                    className="group relative"
-                  >
-                    <Link
-                      href={`/chat/${chat.id}`}
-                      onClick={close}
-                      className={cn(
-                        "flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors",
-                        isActive
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
-                      )}
-                    >
-                      <MessageSquare className="size-3.5 shrink-0" />
-                      <span className="flex-1 truncate">{chat.title}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                        onClick={(e) => handleDeleteChat(chat.id, e)}
-                      >
-                        <Trash2 className="size-3.5 text-destructive" />
-                      </Button>
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
-          </ScrollArea>
-        </>
-      )}
-
-      {/* Spacer when collapsed */}
-      {isCollapsed && <div className="flex-1" />}
+      {/* Spacer */}
+      <div className="flex-1" />
 
       <Separator />
 
