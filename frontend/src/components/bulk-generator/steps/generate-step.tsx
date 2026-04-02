@@ -130,8 +130,10 @@ export function GenerateStep() {
                 } else {
                   setError(data.message ?? "Generation failed");
                 }
+              } else if (currentEvent === "skipped") {
+                // Shot skipped (no Pinterest ref) — don't count as error
               } else if (currentEvent === "generating") {
-                // Just a status update, could show per-image spinners
+                // Status update
               }
             } catch {
               // Skip malformed JSON
