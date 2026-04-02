@@ -262,9 +262,18 @@ export interface SceneLighting {
   mood: string;
 }
 
+export type BRollType = "product_closeup" | "environment" | "lifestyle_insert" | "transition";
+
+export const BROLL_TYPE_LABELS: Record<BRollType, string> = {
+  product_closeup: "Product Close-up",
+  environment: "Environment",
+  lifestyle_insert: "Lifestyle Insert",
+  transition: "Transition",
+};
+
 export interface Scene {
   scene_number: string;
-  scene_type: "hook" | "problem" | "solution" | "demo" | "social_proof" | "cta";
+  scene_type: "hook" | "problem" | "solution" | "demo" | "social_proof" | "cta" | "broll";
   duration_seconds: number;
   start_time: number;
   end_time: number;
@@ -276,6 +285,9 @@ export interface Scene {
   camera: SceneCamera;
   lighting: SceneLighting;
   audio_notes: string;
+  is_broll?: boolean;
+  broll_type?: BRollType;
+  voiceover_text?: string;
   // Generated content (added after storyboard generation)
   storyboard_url?: string;
 }
@@ -291,6 +303,45 @@ export interface Script {
   total_duration: number;
   scenes: Scene[];
   audio_direction: AudioDirection;
+}
+
+// ============================================================================
+// Script Intelligence (Competitor Video & Own Script Analysis)
+// ============================================================================
+
+export interface CompetitorAnalysis {
+  transcript: string;
+  scenes: { timestamp: string; type: string; description: string }[];
+  hook_analysis: string;
+  pacing: string;
+  tone: string;
+  cta_strategy: string;
+  strengths: string[];
+  weaknesses: string[];
+  key_techniques: string[];
+  summary: string;
+}
+
+export interface OwnScriptAnalysis {
+  structure_breakdown: { section: string; lines: string; assessment: string }[];
+  strengths: string[];
+  weaknesses: string[];
+  tone: string;
+  hook_score: number;
+  hook_notes: string;
+  cta_score: number;
+  cta_notes: string;
+  naturalness_score: number;
+  naturalness_notes: string;
+  pacing_assessment: string;
+  improvement_suggestions: string[];
+  summary: string;
+}
+
+export interface AnalysisResponse {
+  success: boolean;
+  analysis: CompetitorAnalysis | OwnScriptAnalysis | null;
+  error: string | null;
 }
 
 // ============================================================================
@@ -418,4 +469,5 @@ export const SCENE_TYPE_LABELS: Record<Scene["scene_type"], string> = {
   demo: "Demo",
   social_proof: "Social Proof",
   cta: "Call to Action",
+  broll: "B-Roll",
 };

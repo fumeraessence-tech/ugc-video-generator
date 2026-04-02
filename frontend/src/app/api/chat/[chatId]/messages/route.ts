@@ -412,6 +412,7 @@ Guide the user to provide what's missing. Be specific and actionable. Keep it un
                     language: typeof settings?.language === "string" ? settings.language : "en",
                     music_config: settings?.musicConfig ?? null,
                     camera_device: typeof settings?.cameraDevice === "string" ? settings.cameraDevice : "iphone_16_pro_max",
+                    include_broll: true,
                     attachment_urls: validAttachments,
                   }),
                 });

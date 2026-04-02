@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
@@ -230,6 +231,7 @@ export function GalleryStep() {
                           </button>
                         </DialogTrigger>
                         <DialogContent className="max-w-3xl p-2">
+                          <DialogTitle className="sr-only">{img.label}</DialogTitle>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={img.imageUrl}

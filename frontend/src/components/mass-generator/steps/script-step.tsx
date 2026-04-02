@@ -24,7 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useMassGeneratorStore } from "@/stores/mass-generator-store";
-import { SCENE_TYPE_LABELS, type Scene, type Script } from "@/types/mass-generator";
+import { SCENE_TYPE_LABELS, BROLL_TYPE_LABELS, type Scene, type Script, type BRollType } from "@/types/mass-generator";
 import { backendFetch } from "@/lib/backend-fetch";
 import { cn } from "@/lib/utils";
 
@@ -39,9 +39,12 @@ export function ScriptStep() {
     duration,
     language,
     cameraDevice,
+    includeBroll,
     script,
     setScript,
     setProductionBible,
+    competitorAnalysis,
+    ownScriptAnalysis,
     isLoading,
     setLoading,
     error,
@@ -89,14 +92,23 @@ export function ScriptStep() {
 
       setProductionBible(bibleData.bible);
 
-      // Then, generate the script
+      // Then, generate the script (with optional analysis context)
+      const scriptPayload: Record<string, unknown> = {
+        bible: bibleData.bible,
+        include_broll: includeBroll,
+      };
+      if (competitorAnalysis) {
+        scriptPayload.competitor_analysis = JSON.stringify(competitorAnalysis);
+      }
+      if (ownScriptAnalysis) {
+        scriptPayload.own_script_analysis = JSON.stringify(ownScriptAnalysis);
+      }
+
       const scriptResponse = await backendFetch(
         "/api/v1/mass-generator/generate-script",
         {
           method: "POST",
-          body: JSON.stringify({
-            bible: bibleData.bible,
-          }),
+          body: JSON.stringify(scriptPayload),
         }
       );
 
@@ -176,6 +188,20 @@ export function ScriptStep() {
                   Based on your product DNA and creative brief, we'll generate a
                   complete {duration}-second {style.replace("_", " ")} script.
                 </p>
+                {(competitorAnalysis || ownScriptAnalysis) && (
+                  <div className="flex gap-2 mt-2">
+                    {competitorAnalysis && (
+                      <Badge variant="secondary" className="text-xs">
+                        Using competitor reference
+                      </Badge>
+                    )}
+                    {ownScriptAnalysis && (
+                      <Badge variant="secondary" className="text-xs">
+                        Using your script
+                      </Badge>
+                    )}
+                  </div>
+                )}
               </div>
               <Button
                 onClick={generateScript}
@@ -341,7 +367,7 @@ function normalizeScriptFromBackend(rawScript: Record<string, unknown>): Script 
 
     // Map scene type
     const sceneTypeRaw = (scene.scene_type as string) || "demo";
-    const validSceneTypes: Scene["scene_type"][] = ["hook", "problem", "solution", "demo", "social_proof", "cta"];
+    const validSceneTypes: Scene["scene_type"][] = ["hook", "problem", "solution", "demo", "social_proof", "cta", "broll"];
     const sceneType: Scene["scene_type"] = validSceneTypes.includes(sceneTypeRaw as Scene["scene_type"])
       ? (sceneTypeRaw as Scene["scene_type"])
       : "demo";
@@ -360,6 +386,9 @@ function normalizeScriptFromBackend(rawScript: Record<string, unknown>): Script 
       camera,
       lighting,
       audio_notes: (scene.audio_notes as string) || "",
+      is_broll: (scene.is_broll as boolean) ?? false,
+      broll_type: (scene.broll_type as BRollType) ?? undefined,
+      voiceover_text: (scene.voiceover_text as string) ?? "",
     };
   });
 
@@ -413,6 +442,7 @@ function SceneCard({
     demo: "bg-blue-500/10 text-blue-600",
     social_proof: "bg-purple-500/10 text-purple-600",
     cta: "bg-pink-500/10 text-pink-600",
+    broll: "bg-amber-500/10 text-amber-600",
   };
 
   const handleStartEdit = (e: React.MouseEvent) => {
@@ -446,7 +476,8 @@ function SceneCard({
     <Card
       className={cn(
         "cursor-pointer transition-all",
-        isSelected && "ring-2 ring-primary"
+        isSelected && "ring-2 ring-primary",
+        scene.is_broll && "border-l-4 border-l-amber-400 bg-amber-50/30 dark:bg-amber-950/10"
       )}
       onClick={onSelect}
     >
@@ -461,12 +492,21 @@ function SceneCard({
           <div className="flex-1 min-w-0">
             {/* Header */}
             <div className="flex items-center gap-2 mb-2">
-              <Badge
-                variant="secondary"
-                className={cn("text-xs", typeColors[scene.scene_type])}
-              >
-                {SCENE_TYPE_LABELS[scene.scene_type]}
-              </Badge>
+              {scene.is_broll && scene.broll_type ? (
+                <Badge
+                  variant="secondary"
+                  className="text-xs bg-amber-500/10 text-amber-600"
+                >
+                  B-Roll: {BROLL_TYPE_LABELS[scene.broll_type]}
+                </Badge>
+              ) : (
+                <Badge
+                  variant="secondary"
+                  className={cn("text-xs", typeColors[scene.scene_type])}
+                >
+                  {SCENE_TYPE_LABELS[scene.scene_type]}
+                </Badge>
+              )}
               <span className="text-xs text-muted-foreground">
                 {scene.start_time}s - {scene.end_time}s ({scene.duration_seconds}s)
               </span>
@@ -494,22 +534,26 @@ function SceneCard({
                     rows={2}
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Action</label>
-                  <Input
-                    value={editAction}
-                    onChange={(e) => setEditAction(e.target.value)}
-                    className="text-sm"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Expression</label>
-                  <Input
-                    value={editExpression}
-                    onChange={(e) => setEditExpression(e.target.value)}
-                    className="text-sm"
-                  />
-                </div>
+                {!scene.is_broll && (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Action</label>
+                      <Input
+                        value={editAction}
+                        onChange={(e) => setEditAction(e.target.value)}
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Expression</label>
+                      <Input
+                        value={editExpression}
+                        onChange={(e) => setEditExpression(e.target.value)}
+                        className="text-sm"
+                      />
+                    </div>
+                  </>
+                )}
                 <div className="flex gap-2">
                   <Button size="sm" onClick={handleSaveEdit}>
                     <Check className="size-3 mr-1" />
@@ -523,19 +567,31 @@ function SceneCard({
               </div>
             ) : (
               <>
-                <p className="font-medium mb-2">"{scene.dialogue}"</p>
+                {scene.is_broll ? (
+                  scene.voiceover_text ? (
+                    <p className="font-medium mb-2">"{scene.voiceover_text}"</p>
+                  ) : (
+                    <p className="italic text-muted-foreground mb-2">(Visual only — no dialogue)</p>
+                  )
+                ) : (
+                  <p className="font-medium mb-2">"{scene.dialogue}"</p>
+                )}
 
                 {/* Expanded Details */}
                 {isSelected && (
                   <div className="mt-4 space-y-3 text-sm">
-                    <div className="flex items-start gap-2">
-                      <span className="text-muted-foreground min-w-20">Action:</span>
-                      <span>{scene.action}</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="text-muted-foreground min-w-20">Expression:</span>
-                      <span>{scene.expression}</span>
-                    </div>
+                    {!scene.is_broll && (
+                      <>
+                        <div className="flex items-start gap-2">
+                          <span className="text-muted-foreground min-w-20">Action:</span>
+                          <span>{scene.action}</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="text-muted-foreground min-w-20">Expression:</span>
+                          <span>{scene.expression}</span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex items-start gap-2">
                       <Camera className="size-4 text-muted-foreground mt-0.5" />
                       <span>

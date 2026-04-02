@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { User, Check, Upload, Loader2, Plus, Volume2, Trash2, ImagePlus, Eye, Globe, Smartphone, Music } from "lucide-react";
+import { User, Check, Upload, Loader2, Plus, Volume2, Trash2, ImagePlus, Eye, Globe, Smartphone, Music, Film } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -98,6 +98,8 @@ export function AvatarStep() {
     setMusicConfig,
     cameraDevice,
     setCameraDevice,
+    includeBroll,
+    setIncludeBroll,
     prevStep,
     nextStep,
   } = useMassGeneratorStore();
@@ -642,6 +644,23 @@ export function AvatarStep() {
                 </SelectContent>
               </Select>
             )}
+          </div>
+
+          {/* B-Roll Scenes */}
+          <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
+                <Film className="h-5 w-5 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">B-Roll Scenes</p>
+                <p className="text-xs text-muted-foreground">Auto-insert product close-ups and visual breathers between main scenes</p>
+              </div>
+            </div>
+            <Switch
+              checked={includeBroll}
+              onCheckedChange={setIncludeBroll}
+            />
           </div>
         </CardContent>
       </Card>

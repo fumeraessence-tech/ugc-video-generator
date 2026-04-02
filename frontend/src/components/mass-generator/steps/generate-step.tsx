@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useStoryboardStream } from "@/hooks/use-storyboard-stream";
+import { createClient } from "@/lib/supabase/client";
 import {
   Sparkles,
   Loader2,
@@ -52,14 +54,18 @@ interface StoryboardScene {
   selectedVariantIndex: number;
 }
 
-type GenerationPhase = "idle" | "storyboard" | "audio" | "video" | "complete";
-
-interface GenerationProgress {
-  phase: GenerationPhase;
-  currentScene: number;
-  totalScenes: number;
-  message: string;
-}
+const PLATFORM_ASPECT_RATIO: Record<string, string> = {
+  instagram_reels: "9:16",
+  tiktok: "9:16",
+  youtube_shorts: "9:16",
+  youtube_long: "16:9",
+  youtube: "16:9",
+  instagram_feed: "4:5",
+  facebook: "1:1",
+  meta_ads: "9:16",
+  pinterest: "9:16",
+  snapchat: "9:16",
+};
 
 export function GenerateStep() {
   const {
@@ -82,13 +88,8 @@ export function GenerateStep() {
   } = useMassGeneratorStore();
 
   const { toast } = useToast();
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [progress, setProgress] = useState<GenerationProgress>({
-    phase: "idle",
-    currentScene: 0,
-    totalScenes: 0,
-    message: "",
-  });
+  const { state: streamState, startStream } = useStoryboardStream();
+  const isGenerating = streamState.isStreaming;
   const [generatedAssets, setGeneratedAssets] = useState<{
     storyboards: StoryboardScene[];
     audioUrl: string | null;
@@ -138,20 +139,7 @@ export function GenerateStep() {
       // Fix scene number to be 1 for single scene generation
       singleSceneScript.scenes[0].scene_number = 1;
 
-      // Map platform to aspect ratio
-      const platformToAspectRatio: Record<string, string> = {
-        instagram_reels: "9:16",
-        tiktok: "9:16",
-        youtube_shorts: "9:16",
-        youtube_long: "16:9",
-        youtube: "16:9",
-        instagram_feed: "4:5",
-        facebook: "1:1",
-        meta_ads: "9:16",
-        pinterest: "9:16",
-        snapchat: "9:16",
-      };
-      const aspectRatio = platformToAspectRatio[platform] || "9:16";
+      const aspectRatio = PLATFORM_ASPECT_RATIO[platform] || "9:16";
 
       const response = await backendFetch(
         "/api/v1/storyboard/generate",
@@ -261,158 +249,103 @@ export function GenerateStep() {
     }
   };
 
+  // Sync streamed scenes into generatedAssets as they arrive
+  useEffect(() => {
+    if (streamState.scenes.length > 0) {
+      console.log(`[storyboard] Syncing ${streamState.scenes.length} scenes to generatedAssets`, streamState.scenes.map(s => ({ num: s.scene_number, url: s.image_url?.slice(0, 50) })));
+      const ts = Date.now();
+      const storyboards: StoryboardScene[] = streamState.scenes.map((s) => ({
+        scene_number: s.scene_number,
+        image_url: s.image_url,
+        prompt: s.prompt,
+        variants: [{ image_url: s.image_url, generated_at: ts }],
+        selectedVariantIndex: 0,
+      }));
+      setGeneratedAssets((prev) => ({ ...prev, storyboards }));
+    }
+  }, [streamState.scenes]);
+
+  // Handle stream completion
+  useEffect(() => {
+    if (streamState.isComplete && streamState.scenes.length > 0 && script) {
+      // Match scenes by scene_number (not index) since parallel generation may deliver out of order
+      const sceneMap = new Map(streamState.scenes.map((s) => [s.scene_number, s]));
+      const updatedScenes = script.scenes.map((scene, i) => ({
+        ...scene,
+        storyboard_url: sceneMap.get(String(scene.scene_number ?? i + 1))?.image_url ?? streamState.scenes[i]?.image_url,
+      }));
+      setScript({ ...script, scenes: updatedScenes });
+      toast({
+        title: "Storyboards Generated!",
+        description: `Successfully created ${streamState.scenes.length} storyboard images`,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamState.isComplete]);
+
+  // Handle stream errors
+  useEffect(() => {
+    if (streamState.error) {
+      setError(streamState.error);
+      toast({
+        title: "Generation Failed",
+        description: streamState.error,
+        variant: "destructive",
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamState.error]);
+
   const generateStoryboard = async () => {
     if (!script || !productionBible || !productDNA) {
       setError("Missing required data. Please go back and complete all steps.");
       return;
     }
 
-    setIsGenerating(true);
     setError(null);
     setGeneratedAssets({ storyboards: [], audioUrl: null, videoUrl: null });
 
-    const totalScenes = script.scenes.length;
+    const backendScript = transformScriptForBackend(script, productionBible, productDNA);
+    const aspectRatio = PLATFORM_ASPECT_RATIO[platform] || "9:16";
 
-    try {
-      setProgress({
-        phase: "storyboard",
-        currentScene: 0,
-        totalScenes,
-        message: "Starting storyboard generation...",
-      });
-
-      // Transform frontend script to backend schema format
-      const backendScript = transformScriptForBackend(script, productionBible, productDNA);
-
-      setProgress({
-        phase: "storyboard",
-        currentScene: 1,
-        totalScenes,
-        message: "Generating all storyboard images...",
-      });
-
-      // Map platform to aspect ratio
-      const platformToAspectRatio: Record<string, string> = {
-        instagram_reels: "9:16",
-        tiktok: "9:16",
-        youtube_shorts: "9:16",
-        youtube_long: "16:9",
-        youtube: "16:9",
-        instagram_feed: "4:5",
-        facebook: "1:1",
-        meta_ads: "9:16",
-        pinterest: "9:16",
-        snapchat: "9:16",
-      };
-      const aspectRatio = platformToAspectRatio[platform] || "9:16";
-
-      // Call the correct backend endpoint with product images, avatar DNA, and reference images
-      const response = await backendFetch(
-        "/api/v1/storyboard/generate",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            script: backendScript,
-            avatar_data: avatarDNA ? { dna: avatarDNA } : null,
-            avatar_reference_images: avatarReferenceImages || [],
-            product_images: productImages || [],
-            product_name: productName || productDNA?.product_name || undefined,
-            product_dna: productDNA || undefined,
-            aspect_ratio: aspectRatio,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        // Handle FastAPI validation errors (detail is array of objects)
-        let errorMessage = `Server error: ${response.status}`;
-        if (errorData.detail) {
-          if (Array.isArray(errorData.detail)) {
-            // Extract messages from validation errors
-            errorMessage = errorData.detail
-              .map((e: { msg?: string; loc?: string[] }) => e.msg || JSON.stringify(e))
-              .join("; ");
-          } else if (typeof errorData.detail === "string") {
-            errorMessage = errorData.detail;
-          } else {
-            errorMessage = JSON.stringify(errorData.detail);
-          }
-        }
-        throw new Error(errorMessage);
+    // Use same-origin Next.js API proxy route (avoids cross-origin SSE streaming issues)
+    await startStream(
+      "/api/storyboard/generate-stream",
+      {
+        script: backendScript,
+        avatarData: avatarDNA
+          ? { dna: avatarDNA, referenceImages: avatarReferenceImages || [] }
+          : null,
+        productImages: productImages || [],
+        productName: productName || (productDNA as unknown as Record<string, unknown>)?.product_name || undefined,
+        productDna: productDNA || undefined,
+        aspectRatio: aspectRatio,
       }
-
-      const data = await response.json();
-      console.log("Storyboard API response:", JSON.stringify(data, null, 2));
-
-      if (data.storyboard?.scenes) {
-        // Extract full scene data with prompts, add cache-busting timestamp
-        const timestamp = Date.now();
-        console.log("Raw storyboard scenes:", JSON.stringify(data.storyboard.scenes, null, 2));
-
-        const storyboards: StoryboardScene[] = data.storyboard.scenes
-          .map((s: { scene_number?: string; image_url?: string; prompt?: string }) => {
-            // Ensure URL starts with / and add cache-bust
-            let imageUrl = s.image_url || "";
-            if (imageUrl && !imageUrl.includes("?") && !imageUrl.includes("placehold")) {
-              imageUrl = `${imageUrl}?t=${timestamp}`;
-            }
-            console.log(`Scene ${s.scene_number} image_url:`, imageUrl);
-            return {
-              scene_number: s.scene_number || "1",
-              image_url: imageUrl,
-              prompt: s.prompt || "",
-              variants: [{ image_url: imageUrl, generated_at: timestamp }],
-              selectedVariantIndex: 0,
-            };
-          })
-          // Only filter out completely empty URLs, keep placeholders for debugging
-          .filter((s: StoryboardScene) => s.image_url && s.image_url.trim() !== "");
-
-        console.log("Processed storyboards:", storyboards.length, storyboards.map(s => ({ scene: s.scene_number, url: s.image_url?.substring(0, 50) })));
-        setGeneratedAssets((prev) => ({ ...prev, storyboards }));
-
-        // Update script with storyboard URLs
-        const updatedScenes = script.scenes.map((scene, i) => ({
-          ...scene,
-          storyboard_url: data.storyboard.scenes[i]?.image_url,
-        }));
-        setScript({ ...script, scenes: updatedScenes });
-
-        toast({
-          title: "Storyboards Generated!",
-          description: `Successfully created ${storyboards.length} storyboard images`,
-        });
-      }
-
-      setProgress({
-        phase: "complete",
-        currentScene: totalScenes,
-        totalScenes,
-        message: "Storyboard generation complete!",
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Generation failed";
-      setError(message);
-      toast({
-        title: "Generation Failed",
-        description: message,
-        variant: "destructive",
-      });
-      setProgress({
-        phase: "idle",
-        currentScene: 0,
-        totalScenes: 0,
-        message: "",
-      });
-    } finally {
-      setIsGenerating(false);
-    }
+    );
   };
 
+  // Compute display storyboards: use generatedAssets if populated (supports variants),
+  // otherwise derive directly from streamState.scenes as a robust fallback
+  const displayStoryboards: StoryboardScene[] = useMemo(() => {
+    if (generatedAssets.storyboards.length > 0) {
+      return generatedAssets.storyboards;
+    }
+    if (streamState.scenes.length > 0) {
+      const ts = Date.now();
+      return streamState.scenes.map((s) => ({
+        scene_number: s.scene_number,
+        image_url: s.image_url,
+        prompt: s.prompt,
+        variants: [{ image_url: s.image_url, generated_at: ts }],
+        selectedVariantIndex: 0,
+      }));
+    }
+    return [];
+  }, [generatedAssets.storyboards, streamState.scenes]);
+
   const progressPercent =
-    progress.totalScenes > 0
-      ? Math.round((progress.currentScene / progress.totalScenes) * 100)
+    streamState.totalScenes > 0
+      ? Math.round((streamState.completedScenes / streamState.totalScenes) * 100)
       : 0;
 
   // Build the full prompt for preview
@@ -743,12 +676,16 @@ export function GenerateStep() {
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <Loader2 className="size-5 animate-spin text-primary" />
-                <span className="font-medium">{progress.message}</span>
+                <span className="font-medium">
+                  {streamState.completedScenes > 0
+                    ? `Generated scene ${streamState.completedScenes} of ${streamState.totalScenes}...`
+                    : "Starting storyboard generation..."}
+                </span>
               </div>
               <Progress value={progressPercent} className="h-2" />
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>
-                  Scene {progress.currentScene} of {progress.totalScenes}
+                  Scene {streamState.completedScenes} of {streamState.totalScenes}
                 </span>
                 <span>{progressPercent}%</span>
               </div>
@@ -758,17 +695,17 @@ export function GenerateStep() {
       )}
 
       {/* Generated Storyboards Preview */}
-      {generatedAssets.storyboards.length > 0 && (
+      {displayStoryboards.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <Check className="size-4 text-green-500" />
-              Generated Storyboards ({generatedAssets.storyboards.length})
+              Generated Storyboards ({displayStoryboards.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {generatedAssets.storyboards.map((scene, i) => {
+              {displayStoryboards.map((scene, i) => {
                 const isRegenerating = regeneratingScenes.has(i);
                 const hasMultipleVariants = scene.variants.length > 1;
 
@@ -972,7 +909,7 @@ export function GenerateStep() {
                   <h4 className="font-medium text-sm">All Variants</h4>
                   <div className="flex gap-2 overflow-x-auto pb-2">
                     {previewScene.variants.map((variant, vIndex) => {
-                      const sceneIndex = generatedAssets.storyboards.findIndex(
+                      const sceneIndex = displayStoryboards.findIndex(
                         (s) => s.scene_number === previewScene.scene_number
                       );
                       return (
@@ -1019,10 +956,10 @@ export function GenerateStep() {
                   variant="outline"
                   className="flex-1"
                   disabled={isGenerating || regeneratingScenes.has(
-                    generatedAssets.storyboards.findIndex((s) => s.scene_number === previewScene.scene_number)
+                    displayStoryboards.findIndex((s) => s.scene_number === previewScene.scene_number)
                   )}
                   onClick={() => {
-                    const sceneIndex = generatedAssets.storyboards.findIndex(
+                    const sceneIndex = displayStoryboards.findIndex(
                       (s) => s.scene_number === previewScene.scene_number
                     );
                     if (sceneIndex >= 0) {
@@ -1057,7 +994,7 @@ export function GenerateStep() {
       </Dialog>
 
       {/* Generate Button - show if not generating and no storyboards yet */}
-      {!isGenerating && generatedAssets.storyboards.length === 0 && (
+      {!isGenerating && displayStoryboards.length === 0 && (
         <Button
           onClick={generateStoryboard}
           disabled={!script || script.scenes.length === 0}
@@ -1070,7 +1007,7 @@ export function GenerateStep() {
       )}
 
       {/* Complete Actions - only show when storyboards exist */}
-      {generatedAssets.storyboards.length > 0 && !isGenerating && (
+      {displayStoryboards.length > 0 && !isGenerating && (
         <div className="space-y-4">
           <Button
             onClick={() => useMassGeneratorStore.getState().nextStep()}

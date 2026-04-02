@@ -20,6 +20,8 @@ import type {
   Language,
   MusicConfig,
   CameraDevice,
+  CompetitorAnalysis,
+  OwnScriptAnalysis,
 } from "@/types/mass-generator";
 
 interface MassGeneratorStore extends WizardState {
@@ -33,6 +35,9 @@ interface MassGeneratorStore extends WizardState {
   musicConfig: MusicConfig;
   // Camera device selection
   cameraDevice: CameraDevice;
+  // B-Roll toggle
+  includeBroll: boolean;
+  setIncludeBroll: (val: boolean) => void;
 
   // Navigation
   setCurrentStep: (step: WizardStep) => void;
@@ -66,6 +71,14 @@ interface MassGeneratorStore extends WizardState {
   setUserPrompt: (prompt: string) => void;
   setCreativeBrief: (brief: CreativeBrief | null) => void;
 
+  // Script Intelligence (optional context for script generation)
+  competitorAnalysis: CompetitorAnalysis | null;
+  ownScriptAnalysis: OwnScriptAnalysis | null;
+  ownScriptText: string;
+  setCompetitorAnalysis: (analysis: CompetitorAnalysis | null) => void;
+  setOwnScriptAnalysis: (analysis: OwnScriptAnalysis | null) => void;
+  setOwnScriptText: (text: string) => void;
+
   // Production
   setProductionBible: (bible: ProductionBible | null) => void;
   setScript: (script: Script | null) => void;
@@ -83,8 +96,9 @@ const STEPS: WizardStep[] = ["product", "avatar", "brief", "script", "generate",
 const initialState: Pick<MassGeneratorStore,
   'currentStep' | 'productImages' | 'productName' | 'brandName' | 'productDNA' |
   'selectedAvatarId' | 'avatarDNA' | 'avatarReferenceImages' | 'voice' | 'language' |
-  'musicConfig' | 'cameraDevice' | 'platform' | 'style' |
+  'musicConfig' | 'cameraDevice' | 'includeBroll' | 'platform' | 'style' |
   'tone' | 'duration' | 'userPrompt' | 'creativeBrief' | 'productionBible' | 'script' |
+  'competitorAnalysis' | 'ownScriptAnalysis' | 'ownScriptText' |
   'isLoading' | 'error'
 > = {
   currentStep: "product" as const,
@@ -99,6 +113,7 @@ const initialState: Pick<MassGeneratorStore,
   language: "en" as const,
   musicConfig: { enabled: false, category: null, volume: 30 } as MusicConfig,
   cameraDevice: "iphone_16_pro_max" as CameraDevice,
+  includeBroll: true,
   platform: "instagram_reels" as const,
   style: "testimonial" as const,
   tone: "excited" as const,
@@ -107,6 +122,9 @@ const initialState: Pick<MassGeneratorStore,
   creativeBrief: null,
   productionBible: null,
   script: null,
+  competitorAnalysis: null,
+  ownScriptAnalysis: null,
+  ownScriptText: "",
   isLoading: false,
   error: null,
 };
@@ -163,6 +181,7 @@ export const useMassGeneratorStore = create<MassGeneratorStore>()(
       setLanguage: (language) => set({ language }),
       setMusicConfig: (musicConfig) => set({ musicConfig }),
       setCameraDevice: (cameraDevice) => set({ cameraDevice }),
+      setIncludeBroll: (val) => set({ includeBroll: val }),
 
       // Style
       setPlatform: (platform) => set({ platform }),
@@ -177,6 +196,11 @@ export const useMassGeneratorStore = create<MassGeneratorStore>()(
       setUserPrompt: (prompt) => set({ userPrompt: prompt }),
 
       setCreativeBrief: (brief) => set({ creativeBrief: brief }),
+
+      // Script Intelligence
+      setCompetitorAnalysis: (analysis) => set({ competitorAnalysis: analysis }),
+      setOwnScriptAnalysis: (analysis) => set({ ownScriptAnalysis: analysis }),
+      setOwnScriptText: (text) => set({ ownScriptText: text }),
 
       // Production
       setProductionBible: (bible) => set({ productionBible: bible }),
@@ -207,12 +231,16 @@ export const useMassGeneratorStore = create<MassGeneratorStore>()(
         language: state.language,
         musicConfig: state.musicConfig,
         cameraDevice: state.cameraDevice,
+        includeBroll: state.includeBroll,
         platform: state.platform,
         style: state.style,
         tone: state.tone,
         duration: state.duration,
         userPrompt: state.userPrompt,
         creativeBrief: state.creativeBrief,
+        competitorAnalysis: state.competitorAnalysis,
+        ownScriptAnalysis: state.ownScriptAnalysis,
+        ownScriptText: state.ownScriptText,
         // Don't persist loading/error states
       }),
     }

@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkles, Loader2, AlertCircle, Pencil, Check, X, RefreshCw, Trash2 } from "lucide-react";
+import { useState, useRef } from "react";
+import { Sparkles, Loader2, AlertCircle, Pencil, Check, X, RefreshCw, Trash2, ChevronDown, ChevronUp, FileVideo, FileText, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { useMassGeneratorStore } from "@/stores/mass-generator-store";
-import type { CreativeBrief } from "@/types/mass-generator";
+import type { CreativeBrief, CompetitorAnalysis, OwnScriptAnalysis } from "@/types/mass-generator";
 import { backendFetch } from "@/lib/backend-fetch";
 
 export function BriefStep() {
@@ -23,6 +24,12 @@ export function BriefStep() {
     setUserPrompt,
     creativeBrief,
     setCreativeBrief,
+    competitorAnalysis,
+    setCompetitorAnalysis,
+    ownScriptAnalysis,
+    setOwnScriptAnalysis,
+    ownScriptText,
+    setOwnScriptText,
     isLoading,
     setLoading,
     error,
@@ -35,6 +42,12 @@ export function BriefStep() {
     null
   );
   const [editValue, setEditValue] = useState("");
+  const [videoExpanded, setVideoExpanded] = useState(false);
+  const [scriptExpanded, setScriptExpanded] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [analyzingVideo, setAnalyzingVideo] = useState(false);
+  const [analyzingScript, setAnalyzingScript] = useState(false);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   const expandBrief = async () => {
     if (!userPrompt.trim()) {
@@ -113,6 +126,72 @@ export function BriefStep() {
     setEditValue("");
   };
 
+  const analyzeCompetitorVideo = async () => {
+    if (!videoFile) return;
+
+    setAnalyzingVideo(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("video", videoFile);
+
+      const response = await backendFetch(
+        "/api/v1/mass-generator/analyze-competitor-video",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+
+      if (!data.success || !data.analysis) {
+        throw new Error(data.error || "Failed to analyze video");
+      }
+
+      setCompetitorAnalysis(data.analysis as CompetitorAnalysis);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Video analysis failed";
+      setError(message);
+    } finally {
+      setAnalyzingVideo(false);
+    }
+  };
+
+  const analyzeOwnScript = async () => {
+    if (!ownScriptText.trim() || ownScriptText.trim().length < 20) {
+      setError("Please enter at least 20 characters of script text.");
+      return;
+    }
+
+    setAnalyzingScript(true);
+    setError(null);
+
+    try {
+      const response = await backendFetch(
+        "/api/v1/mass-generator/analyze-own-script",
+        {
+          method: "POST",
+          body: JSON.stringify({ script_text: ownScriptText }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!data.success || !data.analysis) {
+        throw new Error(data.error || "Failed to analyze script");
+      }
+
+      setOwnScriptAnalysis(data.analysis as OwnScriptAnalysis);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Script analysis failed";
+      setError(message);
+    } finally {
+      setAnalyzingScript(false);
+    }
+  };
+
   const canProceed = creativeBrief !== null;
 
   return (
@@ -165,6 +244,234 @@ export function BriefStep() {
             )}
           </Button>
         </CardContent>
+      </Card>
+
+      {/* Optional: Competitor Video Analysis */}
+      <Card>
+        <CardHeader
+          className="cursor-pointer select-none"
+          onClick={() => setVideoExpanded(!videoExpanded)}
+        >
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <FileVideo className="size-4" />
+              Reference a Competitor Video
+              <Badge variant="outline" className="text-xs font-normal">
+                Optional
+              </Badge>
+              {competitorAnalysis && (
+                <Badge className="text-xs bg-green-500/10 text-green-600 border-green-500/20">
+                  Analyzed
+                </Badge>
+              )}
+            </CardTitle>
+            {videoExpanded ? (
+              <ChevronUp className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="size-4 text-muted-foreground" />
+            )}
+          </div>
+        </CardHeader>
+        {videoExpanded && (
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Upload a competitor's video and our AI will transcribe and analyze it — hook strategy, pacing, CTA, strengths, and weaknesses. This analysis will inform your script generation.
+            </p>
+
+            {!competitorAnalysis ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={videoInputRef}
+                    type="file"
+                    accept="video/mp4,video/mov,video/mpeg,video/avi,video/webm,video/quicktime"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        if (file.size > 100 * 1024 * 1024) {
+                          setError("Video file too large. Maximum size is 100MB.");
+                          return;
+                        }
+                        setVideoFile(file);
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => videoInputRef.current?.click()}
+                    disabled={analyzingVideo}
+                  >
+                    <Upload className="size-3 mr-1" />
+                    {videoFile ? "Change Video" : "Select Video"}
+                  </Button>
+                  {videoFile && (
+                    <span className="text-sm text-muted-foreground">
+                      {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(1)}MB)
+                    </span>
+                  )}
+                </div>
+                {videoFile && (
+                  <Button
+                    onClick={analyzeCompetitorVideo}
+                    disabled={analyzingVideo}
+                    size="sm"
+                  >
+                    {analyzingVideo ? (
+                      <>
+                        <Loader2 className="size-3 mr-1 animate-spin" />
+                        Analyzing Video (this may take a minute)...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="size-3 mr-1" />
+                        Analyze Video
+                      </>
+                    )}
+                  </Button>
+                )}
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-2">
+                  <p><span className="font-medium">Summary:</span> {competitorAnalysis.summary}</p>
+                  <p><span className="font-medium">Hook:</span> {competitorAnalysis.hook_analysis}</p>
+                  <div>
+                    <span className="font-medium">Strengths:</span>
+                    <ul className="list-disc list-inside ml-2">
+                      {competitorAnalysis.strengths.map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <span className="font-medium">Weaknesses:</span>
+                    <ul className="list-disc list-inside ml-2">
+                      {competitorAnalysis.weaknesses.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setCompetitorAnalysis(null);
+                    setVideoFile(null);
+                  }}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="size-3 mr-1" />
+                  Clear Analysis
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Optional: Own Script Analysis */}
+      <Card>
+        <CardHeader
+          className="cursor-pointer select-none"
+          onClick={() => setScriptExpanded(!scriptExpanded)}
+        >
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <FileText className="size-4" />
+              Upload Your Own Script
+              <Badge variant="outline" className="text-xs font-normal">
+                Optional
+              </Badge>
+              {ownScriptAnalysis && (
+                <Badge className="text-xs bg-green-500/10 text-green-600 border-green-500/20">
+                  Analyzed
+                </Badge>
+              )}
+            </CardTitle>
+            {scriptExpanded ? (
+              <ChevronUp className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="size-4 text-muted-foreground" />
+            )}
+          </div>
+        </CardHeader>
+        {scriptExpanded && (
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Paste your own script and our AI will deeply analyze it — structure, hook effectiveness, CTA strength, pacing, and naturalness. The generated script will be an improved version.
+            </p>
+
+            {!ownScriptAnalysis ? (
+              <>
+                <Textarea
+                  placeholder="Paste your script here... (minimum 20 characters)"
+                  value={ownScriptText}
+                  onChange={(e) => setOwnScriptText(e.target.value)}
+                  rows={6}
+                  className="resize-none text-sm"
+                />
+                <Button
+                  onClick={analyzeOwnScript}
+                  disabled={analyzingScript || ownScriptText.trim().length < 20}
+                  size="sm"
+                >
+                  {analyzingScript ? (
+                    <>
+                      <Loader2 className="size-3 mr-1 animate-spin" />
+                      Analyzing Script...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="size-3 mr-1" />
+                      Analyze Script
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-2">
+                  <p><span className="font-medium">Summary:</span> {ownScriptAnalysis.summary}</p>
+                  <div className="flex gap-4">
+                    <span>Hook: <strong>{ownScriptAnalysis.hook_score}/10</strong></span>
+                    <span>CTA: <strong>{ownScriptAnalysis.cta_score}/10</strong></span>
+                    <span>Naturalness: <strong>{ownScriptAnalysis.naturalness_score}/10</strong></span>
+                  </div>
+                  <div>
+                    <span className="font-medium">Strengths:</span>
+                    <ul className="list-disc list-inside ml-2">
+                      {ownScriptAnalysis.strengths.map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <span className="font-medium">Improvements:</span>
+                    <ul className="list-disc list-inside ml-2">
+                      {ownScriptAnalysis.improvement_suggestions.map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setOwnScriptAnalysis(null);
+                  }}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="size-3 mr-1" />
+                  Clear Analysis
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Expanded Brief */}

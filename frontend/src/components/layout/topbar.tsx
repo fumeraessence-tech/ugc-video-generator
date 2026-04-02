@@ -13,6 +13,7 @@ const pageTitles: Record<string, string> = {
   "/library": "Library",
   "/avatars": "Avatars",
   "/settings": "Settings",
+  "/image-generator": "Image Generator",
 };
 
 function getPageTitle(pathname: string): string {
