@@ -141,11 +141,14 @@ async def upload_csv(
     reader = csv.DictReader(io.StringIO(text))
     rows: list[dict] = []
 
+    # Normalize column names: "Product Name" → "PRODUCT_NAME", "Liquid Color" → "LIQUID_COLOR"
+    def _normalize_key(k: str) -> str:
+        return k.strip().upper().replace(" ", "_").replace("-", "_")
+
     for i, row in enumerate(reader):
         if i >= MAX_CSV_ROWS:
             break
-        # Clean up whitespace in keys and values
-        cleaned = {k.strip(): v.strip() for k, v in row.items() if k and v}
+        cleaned = {_normalize_key(k): v.strip() for k, v in row.items() if k and v}
         if cleaned:
             rows.append(cleaned)
 
@@ -153,11 +156,11 @@ async def upload_csv(
         raise HTTPException(status_code=400, detail="CSV is empty or has no valid rows")
 
     # Validate required columns
-    first_row_keys = {k.upper() for k in rows[0].keys()}
+    first_row_keys = set(rows[0].keys())
     if "PRODUCT_NAME" not in first_row_keys:
         raise HTTPException(
             status_code=400,
-            detail=f"CSV must have a PRODUCT_NAME column. Found: {', '.join(rows[0].keys())}",
+            detail=f"CSV must have a PRODUCT_NAME (or 'Product Name') column. Found: {', '.join(rows[0].keys())}",
         )
 
     columns = list(rows[0].keys())
