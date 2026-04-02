@@ -28,7 +28,7 @@ export function GalleryStep() {
   const [downloading, setDownloading] = useState(false);
   const [lightbox, setLightbox] = useState<BulkGeneratedImage | null>(null);
   const [filter, setFilter] = useState<string>("all");
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [regeneratingIds, setRegeneratingIds] = useState<Set<string>>(new Set());
 
   const doneImages = generatedImages.filter((img) => img.status === "done" && img.imageUrl);
 
@@ -90,7 +90,7 @@ export function GalleryStep() {
     if (!row) return;
 
     const id = img.id;
-    setRegeneratingId(id);
+    setRegeneratingIds((prev) => new Set(prev).add(id));
     updateGeneratedImage(id, { status: "generating", error: undefined });
 
     try {
@@ -156,7 +156,11 @@ export function GalleryStep() {
     } catch (err) {
       updateGeneratedImage(id, { status: "error", error: err instanceof Error ? err.message : "Regeneration failed" });
     } finally {
-      setRegeneratingId(null);
+      setRegeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   }, [csvRows, referenceImages, boxImages, notesReferenceImages, brandName, pinterestImages, avatarImages, updateGeneratedImage]);
 
@@ -219,7 +223,7 @@ export function GalleryStep() {
                       key={img.id}
                       className="group relative overflow-hidden rounded-xl border bg-muted transition-shadow hover:shadow-lg"
                     >
-                      {img.status === "generating" || regeneratingId === img.id ? (
+                      {img.status === "generating" || regeneratingIds.has(img.id) ? (
                         <div className="flex aspect-square flex-col items-center justify-center gap-2">
                           <Loader2 className="size-6 animate-spin text-primary" />
                           <span className="text-[10px] text-muted-foreground">Regenerating...</span>
@@ -238,7 +242,7 @@ export function GalleryStep() {
                         </button>
                       )}
                       {/* Regenerate button on hover */}
-                      {img.status === "done" && regeneratingId !== img.id && (
+                      {img.status === "done" && !regeneratingIds.has(img.id) && (
                         <Button
                           variant="secondary"
                           size="icon"
@@ -247,7 +251,7 @@ export function GalleryStep() {
                             e.stopPropagation();
                             regenerateSingleShot(img);
                           }}
-                          disabled={regeneratingId !== null}
+                          disabled={regeneratingIds.has(img.id)}
                           title="Regenerate this image"
                         >
                           <RefreshCw className="size-3.5" />
@@ -287,7 +291,7 @@ export function GalleryStep() {
                   regenerateSingleShot(lightbox);
                   setLightbox(null);
                 }}
-                disabled={regeneratingId !== null}
+                disabled={regeneratingIds.has(lightbox.id)}
                 title="Regenerate this image"
               >
                 <RefreshCw className="size-4" />

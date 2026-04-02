@@ -138,13 +138,14 @@ def _build_prompt(
     elif shot_key == "styled_product":
         return (
             f"{_BOTTLE_LOCK}"
-            f"Remove the bottle from the first image. "
-            f"Place the perfume bottle from the second image in its place, elegant composition. "
-            f"The bottle MUST keep the EXACT same shape, cap, and proportions as the second image — clone its silhouette exactly. "
-            f"Keep the background, surface, and lighting from the first image. "
+            f"IMAGE EDITING TASK — NOT new generation. "
+            f"The first image is a styled SCENE with a bottle in it. The second image is the BOTTLE REFERENCE showing the exact bottle design to use. "
+            f"Remove whatever bottle exists in the first image. "
+            f"Paste the EXACT bottle from the second image into the scene — same shape, same cap, same glass, same proportions, same label band width. "
+            f"Do NOT redesign, reimagine, or stylize the bottle. Clone it pixel-for-pixel from the second image. "
+            f"Only change the label text: '{product_name}' in white on the black band. '{brand}' logo and 'ESSENCE' below, all white. "
             f"The liquid is {liquid}. "
-            f"On the black label band: '{product_name}' in white text. "
-            f"Keep '{brand}' logo and 'ESSENCE' exactly as the second image, all white. "
+            f"Keep the background, surface, props, and lighting from the first image EXACTLY. "
             f"1:1 square."
         )
 

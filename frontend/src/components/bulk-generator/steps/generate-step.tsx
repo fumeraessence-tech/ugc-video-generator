@@ -38,7 +38,7 @@ export function GenerateStep() {
     nextStep,
   } = useBulkGeneratorStore();
 
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [regeneratingIds, setRegeneratingIds] = useState<Set<string>>(new Set());
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -169,7 +169,7 @@ export function GenerateStep() {
     if (!row) return;
 
     const id = img.id;
-    setRegeneratingId(id);
+    setRegeneratingIds((prev) => new Set(prev).add(id));
     updateGeneratedImage(id, { status: "generating", error: undefined });
 
     try {
@@ -235,7 +235,11 @@ export function GenerateStep() {
     } catch (err) {
       updateGeneratedImage(id, { status: "error", error: err instanceof Error ? err.message : "Regeneration failed" });
     } finally {
-      setRegeneratingId(null);
+      setRegeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   }, [csvRows, referenceImages, boxImages, notesReferenceImages, brandName, pinterestImages, avatarImages, updateGeneratedImage]);
 
@@ -343,7 +347,7 @@ export function GenerateStep() {
                                 size="icon"
                                 className="absolute right-1 top-1 size-7 opacity-0 shadow-md transition-opacity group-hover:opacity-100"
                                 onClick={() => regenerateSingleShot(img)}
-                                disabled={regeneratingId !== null}
+                                disabled={regeneratingIds.has(img.id)}
                                 title="Regenerate this image"
                               >
                                 <RefreshCw className="size-3.5" />
@@ -366,7 +370,7 @@ export function GenerateStep() {
                               size="sm"
                               className="mt-2 h-6 text-[10px]"
                               onClick={() => regenerateSingleShot(img)}
-                              disabled={regeneratingId !== null}
+                              disabled={regeneratingIds.has(img.id)}
                             >
                               <RefreshCw className="mr-1 size-3" />
                               Retry

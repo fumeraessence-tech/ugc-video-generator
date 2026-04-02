@@ -8,9 +8,11 @@ export interface ChatHistoryItem {
 
 interface SidebarState {
   isOpen: boolean;
+  isCollapsed: boolean;
   toggle: () => void;
   open: () => void;
   close: () => void;
+  toggleCollapse: () => void;
   chatHistory: ChatHistoryItem[];
   setChatHistory: (history: ChatHistoryItem[]) => void;
   addChat: (chat: ChatHistoryItem) => void;
@@ -19,9 +21,11 @@ interface SidebarState {
 
 export const useSidebar = create<SidebarState>((set) => ({
   isOpen: false,
+  isCollapsed: false,
   toggle: () => set((state) => ({ isOpen: !state.isOpen })),
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
+  toggleCollapse: () => set((state) => ({ isCollapsed: !state.isCollapsed })),
   chatHistory: [],
   setChatHistory: (history) => set({ chatHistory: history }),
   addChat: (chat) =>
