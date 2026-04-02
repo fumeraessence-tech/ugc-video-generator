@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import health, generation, jobs, avatars, copilot, storyboard, video, mass_generator, editor, perfume, product_studio, image_generator
+from app.routers import health, generation, jobs, avatars, copilot, storyboard, video, mass_generator, editor, perfume, product_studio, image_generator, bulk_generator
 from app.utils.redis_client import get_redis, close_redis
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
@@ -79,3 +79,4 @@ app.include_router(editor.router)
 app.include_router(perfume.router)
 app.include_router(product_studio.router)
 app.include_router(image_generator.router)
+app.include_router(bulk_generator.router)

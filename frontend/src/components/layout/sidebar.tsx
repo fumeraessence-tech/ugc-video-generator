@@ -22,6 +22,8 @@ import {
   FlaskConical,
   ShieldCheck,
   Package,
+  ImagePlus,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -47,6 +49,8 @@ const navItems = [
   { label: "Generate", href: "/generate", icon: Sparkles, highlight: true },
   { label: "Perfume Studio", href: "/perfume-studio", icon: FlaskConical },
   { label: "Product Studio", href: "/product-studio", icon: Package },
+  { label: "Image Generator", href: "/image-generator", icon: ImagePlus },
+  { label: "Bulk Generator", href: "/bulk-generator", icon: Layers },
   { label: "Editor", href: "/editor", icon: Film },
   { label: "New Chat", href: "/chat", icon: Plus },
   { label: "Explore", href: "/explore", icon: Compass },
