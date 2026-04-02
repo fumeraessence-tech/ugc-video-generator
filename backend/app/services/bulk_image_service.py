@@ -1,14 +1,18 @@
 """Bulk Product Image Generator Service.
 
 CSV-driven pipeline for generating product images at scale.
-8 shots per product, chained generation:
+8 shots per product, chained generation with reference-based replace model.
 
+Prompting strategy: "Replace model" — short, direct, conversational.
+  "Using these reference images: clone the bottle, change only X, keep everything else."
+  This works better than verbose structured prompts for Gemini image generation.
+
+Kept as backup: PROMPT_STYLE = "detailed" for the old structured format.
+
+Pipeline:
   Shot 1: Bottle + Box combo hero
-  Shots 2-5: 4 angle shots (Pinterest + bottle ref + Shot 1 as ref)
-  Shots 6-8: 3 creative/lifestyle shots (using angles as additional refs)
-
-ALL reference images (bottle + box + Pinterest + previously generated)
-are injected into EVERY generation call.
+  Shots 2-5: 4 styled angle shots (Pinterest + bottle ref + Shot 1)
+  Shots 6-8: 3 creative shots (Pinterest + bottle + previous outputs)
 """
 
 import asyncio
@@ -37,150 +41,290 @@ MODELS_TO_TRY = [
     "gemini-3-pro-image-preview",
 ]
 
+# Active prompt style: "replace" (new, reference-based) or "detailed" (old, structured)
+PROMPT_STYLE = "replace"
+
+
+# ─── Bottle Identity Block (shared across all prompts) ────────
+
+def _bottle_identity(product_name: str, liquid: str, brand: str) -> str:
+    """Short but precise description of WHAT the Fumera bottle looks like.
+    Used in every prompt so the model knows exactly what to preserve."""
+    return (
+        f"The {brand} bottle has these EXACT features that MUST be preserved:\n"
+        f"- BOTTLE SHAPE: Clear glass, dome-top rounded shoulders, elegant curved silhouette, thick solid glass base (clear plinth visible below liquid), dip-tube visible through center.\n"
+        f"- CAP: Tall cylindrical (~1.5 inches). MATTE BLACK body with visible vertical ribbed/grooved texture. POLISHED GOLD METAL RING at the TOP edge. POLISHED GOLD METAL RING at the BOTTOM edge (where cap meets bottle neck). Two gold bands framing the black ribbed body.\n"
+        f"- LABEL ZONE 1 — ON THE BLACK BAND (horizontal dark band at upper-middle of bottle): The product name '{product_name}' in WHITE SERIF ITALIC text, centered on the band.\n"
+        f"- LABEL ZONE 2 — BELOW THE BLACK BAND (on clear glass, over the liquid): '{brand}' in LARGE WHITE ELEGANT SERIF font with accent 'é'. This is the PRIMARY BRAND LOGO — do NOT remove or change it. Directly below: 'ESSENCE' in smaller WHITE ALL-CAPS letter-spaced text.\n"
+        f"- ALL text on the bottle is WHITE.\n"
+        f"- LIQUID COLOR: {liquid}, filled to approximately 80%.\n"
+        f"- DO NOT remove the '{brand}' logo. DO NOT remove 'ESSENCE'. DO NOT reverse the label positions.\n"
+    )
+
+
 # ─── 8 Shot Definitions ──────────────────────────────────────────
 
 SHOT_CONFIGS = [
-    # Shot 1: Bottle + Box combo
-    {
-        "key": "bottle_box_hero",
-        "label": "Bottle + Box Hero",
-        "phase": 1,
-        "scene": (
-            "=== SHOT: BOTTLE + BOX HERO COMBO ===\n\n"
-            "Create a luxury product hero shot with BOTH the perfume bottle AND its packaging box.\n"
-            "The bottle stands in front or slightly to the side of the box.\n"
-            "Box is at a 3/4 angle showing front face + side, bottle slightly overlapping.\n"
-            "Both items sit on a clean white/neutral surface.\n"
-            "Camera: Eye level, slightly off-center for dynamic composition.\n"
-            "Lighting: Soft studio key light from front-left 45°, balanced fill.\n"
-            "The box gradient color should complement the bottle's liquid color.\n"
-            "Framing: Both items fill 85% of frame. Bottle is the hero, box supports.\n"
-            "Professional luxury perfume commercial photography. 1:1 square."
-        ),
-    },
-    # Shots 2-5: 4 angle shots styled with Pinterest references
-    {
-        "key": "pinterest_front",
-        "label": "Styled Front",
-        "phase": 2,
-        "scene": (
-            "=== SHOT: STYLED FRONT — PINTEREST INSPIRED ===\n\n"
-            "Using the Pinterest/inspiration reference images as STYLE GUIDE:\n"
-            "Match the MOOD, LIGHTING, COLOR PALETTE, and SURFACE/BACKGROUND from the Pinterest images.\n"
-            "Camera: Straight-on front view, eye level with label center.\n"
-            "The bottle stands upright, label fully visible and readable.\n"
-            "STYLE from Pinterest: replicate the atmosphere, surface texture, props, and lighting direction.\n"
-            "The bottle itself is cloned from the bottle reference — only the environment changes.\n"
-            "Framing: Bottle fills 80-85% of frame height.\n"
-            "Lens: 85mm, f/4 for slight background softness.\n"
-            "1:1 square format."
-        ),
-    },
-    {
-        "key": "pinterest_three_quarter",
-        "label": "Styled 3/4 View",
-        "phase": 2,
-        "scene": (
-            "=== SHOT: STYLED 3/4 VIEW — PINTEREST INSPIRED ===\n\n"
-            "Using the Pinterest/inspiration reference images as STYLE GUIDE:\n"
-            "Match the MOOD, LIGHTING, COLOR PALETTE, and SURFACE/BACKGROUND from the Pinterest images.\n"
-            "Camera: Eye level, bottle rotated ~45° showing form and depth.\n"
-            "Label partially visible, glass edge catching rim light.\n"
-            "STYLE from Pinterest: replicate the atmosphere, surface texture, props arrangement.\n"
-            "The bottle is cloned from the bottle reference — only environment/styling changes.\n"
-            "Framing: Bottle fills 80% of frame.\n"
-            "Lens: 85mm, f/4. 1:1 square."
-        ),
-    },
-    {
-        "key": "pinterest_low_angle",
-        "label": "Styled Low Angle",
-        "phase": 2,
-        "scene": (
-            "=== SHOT: STYLED LOW ANGLE — PINTEREST INSPIRED ===\n\n"
-            "Using the Pinterest/inspiration reference images as STYLE GUIDE:\n"
-            "Match the MOOD, LIGHTING, COLOR PALETTE from the Pinterest images.\n"
-            "Camera: 25-30° below the bottle, looking up — powerful, dominant.\n"
-            "The bottle towers over the viewer. Backlight creates liquid glow.\n"
-            "STYLE from Pinterest: replicate the dramatic atmosphere and moody lighting.\n"
-            "Gold cap rings catch overhead light brilliantly.\n"
-            "Framing: Bottle fills 90% of frame.\n"
-            "Lens: 85mm, f/4. 1:1 square."
-        ),
-    },
-    {
-        "key": "pinterest_detail",
-        "label": "Styled Close-up",
-        "phase": 2,
-        "scene": (
-            "=== SHOT: STYLED CLOSE-UP — PINTEREST INSPIRED ===\n\n"
-            "Using the Pinterest/inspiration reference images as STYLE GUIDE:\n"
-            "Match the MOOD, COLOR GRADING, and SURFACE from the Pinterest images.\n"
-            "Camera: Extreme close-up on cap + label area. Macro-style.\n"
-            "Focus: product name on black band = tack-sharp. Background = creamy bokeh.\n"
-            "Gold cap detail: every rib/groove visible with micro-shadows.\n"
-            "STYLE from Pinterest: the overall color palette and lighting mood.\n"
-            "Depth of field: ultra-shallow f/2.8.\n"
-            "Framing: Cap and label band fill 90% of frame.\n"
-            "Lens: 100mm macro. 1:1 square."
-        ),
-    },
-    # Shots 6-8: Creative/lifestyle shots
-    {
-        "key": "lifestyle_editorial",
-        "label": "Lifestyle Editorial",
-        "phase": 3,
-        "scene": (
-            "=== SHOT: LIFESTYLE EDITORIAL ===\n\n"
-            "Luxury lifestyle context shot — NO human model.\n"
-            "Setting: Premium marble vanity or dark wooden surface.\n"
-            "Props (3-4 max): leather journal, luxury watch, silk pocket square, single flower.\n"
-            "Using the Pinterest/inspiration references for STYLE and ATMOSPHERE.\n"
-            "Camera: Eye level, slightly angled. Bottle is hero, props support.\n"
-            "Lighting: Warm moody golden tones (3500K), Rembrandt-style side light.\n"
-            "Framing: Bottle fills 50% of frame, styled context fills the rest.\n"
-            "Depth of field: f/2.8 — bottle sharp, props softly blurred.\n"
-            "1:1 square. Aspirational, Instagram-worthy."
-        ),
-    },
-    {
-        "key": "smoke_mood",
-        "label": "Smoke & Mood",
-        "phase": 3,
-        "scene": (
-            "=== SHOT: SMOKE & MOOD — ATMOSPHERIC ===\n\n"
-            "The bottle emerges from ethereal smoke/mist at its base.\n"
-            "Using the Pinterest/inspiration references for STYLE and COLOR GRADING.\n"
-            "Background: Very dark, near-black. Smoke is the environment.\n"
-            "Smoke: Soft white/gray wisps around the bottle base, backlit for glow.\n"
-            "Smoke does NOT obscure label or brand logo.\n"
-            "Lighting: Strong backlight through liquid = dramatic glow.\n"
-            "Side light catches smoke particles and glass edges.\n"
-            "Mood: Mysterious, deep, intoxicating.\n"
-            "Framing: Bottle fills 75% of frame. 1:1 square."
-        ),
-    },
-    {
-        "key": "reflection_luxury",
-        "label": "Mirror Reflection",
-        "phase": 3,
-        "scene": (
-            "=== SHOT: MIRROR REFLECTION — LUXURY ===\n\n"
-            "Bottle on a polished black mirror/glass surface.\n"
-            "Using the Pinterest/inspiration references for STYLE and LIGHTING MOOD.\n"
-            "The surface creates a PERFECT reflection of the bottle beneath it.\n"
-            "Camera: Slightly low angle (10-15° below eye level).\n"
-            "Background: Deep black gradient.\n"
-            "Lighting: Single dramatic key light from front-left, rim light from behind.\n"
-            "Liquid glows through the glass from backlight.\n"
-            "Framing: Bottle + reflection fill 85% of frame.\n"
-            "1:1 square. Ultra-luxury, sophisticated."
-        ),
-    },
+    {"key": "bottle_box_hero", "label": "Bottle + Box Hero", "phase": 1},
+    {"key": "pinterest_front", "label": "Styled Front", "phase": 2},
+    {"key": "pinterest_three_quarter", "label": "Styled 3/4 View", "phase": 2},
+    {"key": "pinterest_low_angle", "label": "Styled Low Angle", "phase": 2},
+    {"key": "pinterest_detail", "label": "Styled Close-up", "phase": 2},
+    {"key": "lifestyle_editorial", "label": "Lifestyle Editorial", "phase": 3},
+    {"key": "smoke_mood", "label": "Smoke & Mood", "phase": 3},
+    {"key": "reflection_luxury", "label": "Mirror Reflection", "phase": 3},
 ]
 
-SHOT_CONFIG_MAP = {s["key"]: s for s in SHOT_CONFIGS}
-TOTAL_SHOTS = len(SHOT_CONFIGS)  # 8
+TOTAL_SHOTS = len(SHOT_CONFIGS)
+
+
+def _build_replace_prompt(
+    shot_key: str,
+    product_name: str,
+    liquid: str,
+    brand: str,
+    has_pinterest: bool,
+    has_box: bool,
+    has_generated: bool,
+) -> str:
+    """Build prompt in the 'replace model' style — short, direct, conversational.
+
+    Pattern: "Using these reference images: [role of each image].
+    [What to do]. [Bottle identity]. [What to change]. [Keep everything else]."
+    """
+
+    identity = _bottle_identity(product_name, liquid, brand)
+
+    # Reference image role descriptions based on what's provided
+    pinterest_note = (
+        "The PINTEREST/STYLE images show the mood, lighting, surface, and styling to match. "
+        if has_pinterest else ""
+    )
+    generated_note = (
+        "The PREVIOUSLY GENERATED images show the same bottle from earlier shots — maintain consistency with them. "
+        if has_generated else ""
+    )
+    box_note = (
+        "The BOX image shows the packaging — clone its design. "
+        if has_box else ""
+    )
+
+    if shot_key == "bottle_box_hero":
+        return (
+            f"Using these reference images: "
+            f"Remove the existing bottle from the reference scene. Add {brand}'s bottle and label instead. "
+            f"The perfume liquid color will be {liquid}. All label text will be in white color. "
+            f"Replace the product name 'Valmoré Intense' with '{product_name}'. "
+            f"Make sure the product title's typography font is properly copied from {brand}'s reference bottle. "
+            f"The perfume bottle and its liquid should look ultra realistic. "
+            f"\n\n"
+            f"Now create a luxury hero shot with BOTH the bottle AND its packaging box side by side. "
+            f"Clone the box EXACTLY from the box reference — same proportions, gradient, text layout, every detail preserved. "
+            f"The bottle stands slightly in front of the box, both on a clean white/neutral surface. "
+            f"Box at a 3/4 angle showing front face + right side. "
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep everything else identical to the references. "
+            f"Professional luxury perfume commercial photography. 1:1 ratio image."
+        )
+
+    elif shot_key == "pinterest_front":
+        return (
+            f"Using these reference images: "
+            f"Remove the existing bottle from the Pinterest/style reference scene. Add {brand}'s bottle and label instead. "
+            f"The perfume liquid color will be {liquid}. All label text will be in white color. "
+            f"Replace the product name 'Valmoré Intense' with '{product_name}'. "
+            f"Make sure the product title's typography font is properly copied from {brand}'s reference bottle. "
+            f"The perfume bottle and its liquid should look ultra realistic. "
+            f"\n\n"
+            f"Take the MOOD, LIGHTING, COLOR PALETTE, SURFACE, and BACKGROUND from the Pinterest/style reference images. "
+            f"Camera: straight-on front view, eye level with the label. Bottle fills 80-85% of frame. "
+            f"The label must be fully visible and readable. "
+            f"{generated_note}"
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep the bottle shape, cap, label layout, and all text identical to the {brand} bottle reference. "
+            f"1:1 ratio image. Ultra-photorealistic."
+        )
+
+    elif shot_key == "pinterest_three_quarter":
+        return (
+            f"Using these reference images: "
+            f"Remove the existing bottle from the Pinterest/style reference scene. Add {brand}'s bottle and label instead. "
+            f"The perfume liquid color will be {liquid}. All label text will be in white color. "
+            f"Replace the product name with '{product_name}'. "
+            f"Make sure the typography font is properly copied from {brand}'s reference. "
+            f"The bottle and liquid should look ultra realistic. "
+            f"\n\n"
+            f"Take the MOOD, LIGHTING, and STYLING from the Pinterest/style references. "
+            f"Rotate the bottle ~45° to show its 3D form. Camera: eye level, three-quarter angle. "
+            f"Rim light from the opposite side creates a bright highlight on the glass edge. "
+            f"The gold cap rings catch light at this angle. Glass shows refraction through the curved surface. "
+            f"{generated_note}"
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep everything else from the {brand} bottle reference. 1:1 ratio image. Ultra-photorealistic."
+        )
+
+    elif shot_key == "pinterest_low_angle":
+        return (
+            f"Using these reference images: "
+            f"Remove the existing bottle from the Pinterest/style reference scene. Add {brand}'s bottle instead. "
+            f"The perfume liquid color will be {liquid}. All label text in white. "
+            f"Replace the product name with '{product_name}'. Copy the typography exactly from {brand}'s reference. "
+            f"The bottle and liquid must look ultra realistic. "
+            f"\n\n"
+            f"Take the MOOD and DRAMATIC LIGHTING from the Pinterest/style references. "
+            f"Shoot from a LOW ANGLE — camera 25-30° below the bottle, looking up. "
+            f"The bottle appears powerful and towering. "
+            f"Strong backlight makes the {liquid} liquid GLOW through the glass. "
+            f"Gold cap rings shine brilliantly from this angle. Thick glass base prominent from below. "
+            f"{generated_note}"
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep the bottle identical to the reference. 1:1 ratio image. Ultra-photorealistic."
+        )
+
+    elif shot_key == "pinterest_detail":
+        return (
+            f"Using these reference images: "
+            f"Take {brand}'s bottle from the reference. "
+            f"Replace the product name with '{product_name}'. Liquid color: {liquid}. All text white. "
+            f"Copy the typography exactly. "
+            f"\n\n"
+            f"Create an EXTREME CLOSE-UP / MACRO shot of the bottle's cap and label area. "
+            f"{'Match the COLOR GRADING and MOOD from the Pinterest/style references. ' if has_pinterest else ''}"
+            f"Tight crop: the gold cap rings, black ribbed texture, and '{product_name}' on the black band fill 90% of frame. "
+            f"'{product_name}' text must be TACK-SHARP and clearly readable. "
+            f"Gold ring at bottom of cap: razor-sharp metallic with specular highlights. "
+            f"Each rib/groove on the cap body: individually visible with micro-shadows. "
+            f"Behind the focus plane: bottle body softly blurs into creamy bokeh. "
+            f"Ultra-shallow depth of field, f/2.8. Macro lens. "
+            f"{generated_note}"
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep all bottle details identical. 1:1 ratio image. Ultra-photorealistic."
+        )
+
+    elif shot_key == "lifestyle_editorial":
+        return (
+            f"Using these reference images: "
+            f"Take {brand}'s bottle from the reference. "
+            f"Remove the existing bottle from the scene and add {brand}'s bottle and label. "
+            f"Replace the product name with '{product_name}'. Liquid: {liquid}. All label text white. "
+            f"Make sure the typography is properly copied. The bottle should look ultra realistic. "
+            f"\n\n"
+            f"Create a LUXURY LIFESTYLE context shot — NO human model. "
+            f"Place the bottle on a premium marble vanity or dark wooden surface. "
+            f"Style with 3-4 luxury props: leather journal, luxury watch, silk pocket square, single flower. "
+            f"The bottle is the HERO — props support but don't compete. "
+            f"{'Match the mood and atmosphere from the Pinterest references. ' if has_pinterest else ''}"
+            f"Warm moody golden lighting (3500K), Rembrandt-style side light with dramatic shadows. "
+            f"Camera: eye level, slightly angled. f/2.8 — bottle sharp, props soft. "
+            f"{generated_note}"
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep bottle identical. 1:1 ratio image. Ultra-photorealistic. Aspirational, Instagram-worthy."
+        )
+
+    elif shot_key == "smoke_mood":
+        return (
+            f"Using these reference images: "
+            f"Take {brand}'s bottle from the reference. "
+            f"Replace the product name with '{product_name}'. Liquid: {liquid}. All text white. "
+            f"Copy the typography exactly. The bottle must look ultra realistic. "
+            f"\n\n"
+            f"Create an ATMOSPHERIC SMOKE/MIST shot. "
+            f"The bottle emerges from soft ethereal smoke/mist at its base. "
+            f"Background: very dark, near-black. Smoke is the environment. "
+            f"Soft white/gray smoke wisps around the base, backlit for luminous glow. "
+            f"Smoke does NOT obscure the label or brand logo — stays around base and sides. "
+            f"Strong backlight through the {liquid} liquid creates dramatic translucent glow. "
+            f"{'Match the color grading from the Pinterest references. ' if has_pinterest else ''}"
+            f"Mood: mysterious, deep, intoxicating. "
+            f"{generated_note}"
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep bottle identical. 1:1 ratio image. Ultra-photorealistic."
+        )
+
+    elif shot_key == "reflection_luxury":
+        return (
+            f"Using these reference images: "
+            f"Take {brand}'s bottle from the reference. "
+            f"Replace the product name with '{product_name}'. Liquid: {liquid}. All text white. "
+            f"Copy the typography exactly. The bottle must look ultra realistic. "
+            f"\n\n"
+            f"Create a MIRROR REFLECTION luxury shot. "
+            f"Place the bottle on a polished black mirror/glass surface. "
+            f"The surface creates a PERFECT crisp reflection beneath the bottle. "
+            f"Camera: slightly low angle (10-15° below eye level). "
+            f"Background: deep black gradient. "
+            f"Single dramatic key light from front-left, rim light from behind creating luminous edge. "
+            f"The {liquid} liquid glows through the glass from backlight. "
+            f"Gold cap rings reflect brilliantly on the black surface. "
+            f"{'Match the lighting mood from the Pinterest references. ' if has_pinterest else ''}"
+            f"{generated_note}"
+            f"\n\n"
+            f"{identity}"
+            f"\n"
+            f"Keep bottle identical. 1:1 ratio image. Ultra-photorealistic. Ultra-luxury."
+        )
+
+    else:
+        return (
+            f"Using these reference images: clone the {brand} bottle exactly. "
+            f"Change only the product name to '{product_name}' and liquid color to {liquid}. "
+            f"Keep everything else identical. 1:1 square. Ultra-photorealistic.\n\n"
+            f"{identity}"
+        )
+
+
+# ─── Old detailed prompt style (kept as backup) ──────────────────
+
+def _build_detailed_prompt(
+    shot_key: str,
+    product_name: str,
+    liquid: str,
+    brand: str,
+    has_pinterest: bool,
+    has_box: bool,
+    has_generated: bool,
+) -> str:
+    """Old structured prompt format with ASCII box specs. Kept as PROMPT_STYLE='detailed' fallback."""
+
+    identity_block = f"""
+=== {brand.upper()} BOTTLE SPECIFICATIONS [MATCH REFERENCE EXACTLY] ===
+
+┌─────────────────────────────────────────────────────────────┐
+│ BOTTLE: Clear glass, dome-top, curved, thick glass base     │
+│ CAP: Matte black ribbed + gold ring TOP + gold ring BOTTOM  │
+│ LABEL BAND: '{product_name}' in WHITE SERIF ITALIC           │
+│ BELOW BAND: '{brand}' (LARGE WHITE SERIF) + 'ESSENCE'      │
+│ ALL TEXT: WHITE. LIQUID: {liquid} at 80%                     │
+│ ❌ DO NOT remove logo. DO NOT reverse positions.             │
+└─────────────────────────────────────────────────────────────┘
+"""
+
+    shot_descriptions = {
+        "bottle_box_hero": f"Bottle + Box hero on white surface. Clone both from references. Change only product name and liquid. {identity_block}",
+        "pinterest_front": f"Styled front view. Match Pinterest mood/lighting. Label fully visible. {identity_block}",
+        "pinterest_three_quarter": f"Styled 3/4 angle. Match Pinterest mood. Glass refraction visible. {identity_block}",
+        "pinterest_low_angle": f"Low angle hero. Match Pinterest mood. Liquid glows from backlight. {identity_block}",
+        "pinterest_detail": f"Macro close-up on cap and label. f/2.8 bokeh. Match Pinterest color grading. {identity_block}",
+        "lifestyle_editorial": f"Luxury vanity still-life. No human. Marble surface, luxury props. Warm moody light. {identity_block}",
+        "smoke_mood": f"Atmospheric smoke/mist. Dark background. Backlit liquid glow. Mysterious mood. {identity_block}",
+        "reflection_luxury": f"Black mirror surface reflection. Dramatic lighting. Ultra-luxury. {identity_block}",
+    }
+
+    return shot_descriptions.get(shot_key, identity_block)
 
 
 class BulkImageService:
@@ -189,52 +333,6 @@ class BulkImageService:
     def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or settings.GEMINI_API_KEY
         self._client = genai.Client(api_key=self._api_key)
-
-    # ─── Shared Bottle Spec Template ──────────────────────────────
-
-    @staticmethod
-    def _bottle_spec_block(product_name: str, liquid: str, brand: str) -> str:
-        """Shared bottle/cap/label specification — injected into every prompt."""
-        return f"""
-=== {brand.upper()} BOTTLE SPECIFICATIONS [MATCH REFERENCE EXACTLY] ===
-
-┌─────────────────────────────────────────────────────────────┐
-│ BOTTLE SHAPE & SIZE:                                        │
-│ - Clear premium glass with dome-top rounded shoulders       │
-│ - Elegant curved silhouette narrowing at neck               │
-│ - 100ml, approximately 6-8 inches tall including cap        │
-│ - Thick solid glass base — clear plinth below liquid        │
-│ - Visible clear dip tube through center of liquid           │
-│ - {liquid} perfume liquid filled to 80%                     │
-│ - Premium clarity glass with light refraction               │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ CAP DESIGN [MATCH EXACTLY]:                                 │
-│ - Tall cylindrical cap (~1.5 inches)                        │
-│ - MATTE BLACK with vertical grain/ribbed texture            │
-│ - POLISHED GOLD METAL RING at TOP edge                      │
-│ - POLISHED GOLD METAL RING at BOTTOM edge                   │
-│ - Each vertical rib individually visible                    │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ LABEL LAYOUT [EXACT POSITIONS]:                             │
-│                                                             │
-│ BLACK LABEL BAND (upper-middle, ~55-60% from base):         │
-│ - '{product_name}' in WHITE SERIF ITALIC on the band        │
-│                                                             │
-│ BELOW THE BAND (on clear glass):                            │
-│ - '{brand}' — LARGE WHITE SERIF with accent 'e' (é)        │
-│   THIS IS THE LOGO — DO NOT REMOVE                          │
-│ - 'ESSENCE' — small WHITE ALL-CAPS below '{brand}'          │
-│                                                             │
-│ ALL text is WHITE                                           │
-│ ❌ DO NOT remove logo, DO NOT reverse positions              │
-└─────────────────────────────────────────────────────────────┘
-
-CHANGE ONLY: product name → '{product_name}', liquid → {liquid}
-"""
 
     # ─── Content Assembly ─────────────────────────────────────────
 
@@ -246,50 +344,22 @@ CHANGE ONLY: product name → '{product_name}', liquid → {liquid}
         pinterest_parts: list[types.Part],
         generated_parts: list[types.Part],
     ) -> list[types.Part]:
-        """Assemble: images FIRST with labels, then prompt.
+        """Assemble: text prompt FIRST, then images in order.
 
-        ALL refs injected into EVERY call — bottle, box, Pinterest,
-        and previously generated images for this product.
+        This follows the working image_generator_service pattern:
+        text instruction first → model reads the task → then interprets images.
         """
         all_parts: list[types.Part] = []
 
-        # Build reference labels
-        ref_labels = []
-        ref_idx = 1
-        for _ in bottle_parts:
-            ref_labels.append(f"Image {ref_idx}: BOTTLE reference (clone this bottle exactly)")
-            ref_idx += 1
-        for _ in box_parts:
-            ref_labels.append(f"Image {ref_idx}: BOX/PACKAGING reference (match packaging)")
-            ref_idx += 1
-        for _ in pinterest_parts:
-            ref_labels.append(f"Image {ref_idx}: PINTEREST/STYLE reference (match this mood, lighting, surface, styling)")
-            ref_idx += 1
-        for i, _ in enumerate(generated_parts):
-            ref_labels.append(f"Image {ref_idx}: PREVIOUSLY GENERATED shot (maintain consistency with this)")
-            ref_idx += 1
+        # Text FIRST (working pattern from image_generator_service)
+        all_parts.append(types.Part.from_text(text=prompt))
 
-        ref_section = "\n".join(ref_labels)
-
-        # Images FIRST (storyboard pattern)
+        # Then images in order: bottle → box → pinterest → generated
         all_parts.extend(bottle_parts)
         all_parts.extend(box_parts)
         all_parts.extend(pinterest_parts)
         all_parts.extend(generated_parts)
 
-        # Then prompt
-        full_prompt = f"""REFERENCE IMAGES:
-{ref_section}
-
-{prompt}
-
-OUTPUT:
-- 1:1 SQUARE aspect ratio
-- Ultra-photorealistic — real photograph quality
-- Label text tack-sharp and legible
-- ZERO text/watermarks outside bottle/box labels"""
-
-        all_parts.append(types.Part.from_text(text=full_prompt))
         return all_parts
 
     # ─── Per-Row Generation (chained) ─────────────────────────────
@@ -304,20 +374,14 @@ OUTPUT:
         pinterest_ref_parts: list[types.Part],
         box_color: str = "",
     ) -> AsyncGenerator[dict, None]:
-        """Generate 8 chained shots for one product.
-
-        Phase 1: Bottle+Box hero → output becomes ref for Phase 2
-        Phase 2: 4 styled angle shots (Pinterest + bottle + Phase 1 output)
-        Phase 3: 3 creative shots (Pinterest + bottle + best Phase 2 outputs)
-        """
-        liquid = liquid_color or "as shown in the reference"
+        """Generate 8 chained shots for one product."""
+        liquid = liquid_color or "as shown in the bottle reference"
         brand = brand_name or "Fumera"
-        bottle_spec = self._bottle_spec_block(product_name, liquid, brand)
         safe_name = self._safe_name(product_name)
+        has_pinterest = len(pinterest_ref_parts) > 0
+        has_box = len(box_ref_parts) > 0
 
-        # Track generated images for chaining
         generated_parts: list[types.Part] = []
-        phase2_parts: list[types.Part] = []
 
         for shot_idx, shot in enumerate(SHOT_CONFIGS):
             yield {
@@ -330,31 +394,31 @@ OUTPUT:
                 "total": TOTAL_SHOTS,
             }
 
-            # Build shot prompt
-            shot_prompt = f"""{shot['scene']}
+            has_generated = len(generated_parts) > 0
 
-{bottle_spec}
+            # Build prompt based on active style
+            if PROMPT_STYLE == "replace":
+                prompt = _build_replace_prompt(
+                    shot["key"], product_name, liquid, brand,
+                    has_pinterest, has_box, has_generated,
+                )
+            else:
+                prompt = _build_detailed_prompt(
+                    shot["key"], product_name, liquid, brand,
+                    has_pinterest, has_box, has_generated,
+                )
 
-=== REALISM CHECKLIST ===
-✓ Glass: refraction, caustics, Fresnel, dip-tube visible
-✓ Liquid: {liquid}, color depth variation, 80% fill
-✓ Cap: matte black ribbed + gold ring TOP + gold ring BOTTOM
-✓ Label: '{product_name}' ON black band, '{brand}' BELOW, 'ESSENCE' below that
-✓ ALL text WHITE"""
-
-            # Select which generated refs to chain
+            # Select chain refs based on phase
             chain_parts: list[types.Part] = []
             if shot["phase"] == 2:
-                # Phase 2 uses Phase 1 output
-                chain_parts = generated_parts[:1]  # bottle+box hero
+                chain_parts = generated_parts[:1]  # Phase 1 output
             elif shot["phase"] == 3:
-                # Phase 3 uses Phase 1 + best Phase 2 outputs
-                chain_parts = generated_parts[:3]  # hero + first 2 angles
+                chain_parts = generated_parts[:3]  # Phase 1 + first 2 angles
 
             parts = self._build_content_parts(
-                prompt=shot_prompt,
+                prompt=prompt,
                 bottle_parts=bottle_ref_parts,
-                box_parts=box_ref_parts,
+                box_parts=box_ref_parts if shot["key"] == "bottle_box_hero" or shot["phase"] >= 2 else [],
                 pinterest_parts=pinterest_ref_parts,
                 generated_parts=chain_parts,
             )
@@ -374,13 +438,11 @@ OUTPUT:
                 }
                 continue
 
-            # Load generated image for chaining into next shots
+            # Chain: load generated image as ref for next shots
             if image_url:
                 gen_ref = await self._load_images([image_url])
                 if gen_ref:
                     generated_parts.extend(gen_ref)
-                    if shot["phase"] == 2:
-                        phase2_parts.extend(gen_ref)
 
             yield {
                 "event": "image",
@@ -402,15 +464,10 @@ OUTPUT:
         box_reference_urls: list[str] | None = None,
         per_product_pinterest: dict[str, list[str]] | None = None,
     ) -> AsyncGenerator[dict, None]:
-        """Process all CSV rows with per-product Pinterest refs.
-
-        Args:
-            per_product_pinterest: {row_index_str: [pinterest_urls]} mapping
-        """
+        """Process all CSV rows with per-product Pinterest refs."""
         total_rows = len(rows)
         pinterest_map = per_product_pinterest or {}
 
-        # Pre-load shared refs ONCE
         bottle_ref_parts = await self._load_images(reference_image_urls)
         if not bottle_ref_parts:
             yield {"event": "error", "message": "No bottle reference images could be loaded"}
@@ -419,8 +476,8 @@ OUTPUT:
         box_ref_parts = await self._load_images(box_reference_urls or [])
 
         logger.info(
-            "Bulk gen: %d bottle refs, %d box refs, %d products, %d with Pinterest",
-            len(bottle_ref_parts), len(box_ref_parts), total_rows, len(pinterest_map),
+            "Bulk gen [%s style]: %d bottle refs, %d box refs, %d products, %d with Pinterest",
+            PROMPT_STYLE, len(bottle_ref_parts), len(box_ref_parts), total_rows, len(pinterest_map),
         )
 
         yield {
@@ -435,14 +492,8 @@ OUTPUT:
             liquid_color = row.get("LIQUID_COLOR", row.get("liquid_color", ""))
             box_color = row.get("BOX_COLOR", row.get("box_color", ""))
 
-            # Load per-product Pinterest refs
             pinterest_urls = pinterest_map.get(str(row_idx), [])
             pinterest_parts = await self._load_images(pinterest_urls) if pinterest_urls else []
-
-            logger.info(
-                "Row %d [%s]: %d Pinterest refs",
-                row_idx, product_name, len(pinterest_parts),
-            )
 
             yield {
                 "event": "row_start",
@@ -471,7 +522,6 @@ OUTPUT:
                 "row_index": row_idx,
                 "total_rows": total_rows,
                 "product_name": product_name,
-                "message": f"Completed {product_name}",
             }
 
         yield {"event": "complete", "message": f"All {total_rows} products generated"}
@@ -496,7 +546,6 @@ OUTPUT:
                 if image_url:
                     logger.info("Bulk gen [%s]: %s succeeded", prefix, model_name)
                     return image_url
-                logger.warning("Bulk gen [%s]: %s returned no image", prefix, model_name)
             except Exception as e:
                 logger.warning("Bulk gen [%s]: %s failed: %s", prefix, model_name, e)
                 continue
@@ -539,9 +588,7 @@ OUTPUT:
                     return None
             if image_bytes is None:
                 return None
-            original_size = len(image_bytes)
             image_bytes, mime_type = self._compress_image(image_bytes, mime_type)
-            logger.info("Loaded: %s (%s -> %s bytes)", url_path[:60], f"{original_size:,}", f"{len(image_bytes):,}")
             return {"bytes": image_bytes, "mime_type": mime_type}
         except Exception as e:
             logger.warning("Failed to load %s: %s", url_path, e)
