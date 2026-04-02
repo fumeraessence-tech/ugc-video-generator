@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import JSZip from "jszip";
 import { useBulkGeneratorStore, type BulkGeneratedImage } from "@/stores/bulk-generator-store";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,25 +55,24 @@ export function GalleryStep() {
   const downloadZip = useCallback(async () => {
     setDownloading(true);
     try {
-      // Send structured images with product name + label for per-product folders
-      const images = doneImages.map((img) => ({
-        url: img.imageUrl,
-        product_name: img.productName,
-        label: img.label,
-      }));
-      const res = await fetch("/api/bulk-generator/download-zip", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          images,
-          product_name: "bulk-products",
-        }),
-      });
+      const zip = new JSZip();
 
-      if (!res.ok) throw new Error("Download failed");
+      // Group images by product name into folders
+      for (const img of doneImages) {
+        const folderName = img.productName || "Unknown";
+        const fileName = `${img.label}.png`;
+        const folder = zip.folder(folderName)!;
 
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+        // Fetch the image directly (same-origin, no proxy needed)
+        const res = await fetch(img.imageUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          folder.file(fileName, blob);
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
       const a = document.createElement("a");
       a.href = url;
       a.download = "bulk-products_images.zip";
