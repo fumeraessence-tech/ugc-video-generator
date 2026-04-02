@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardCheck, ImageIcon, FileSpreadsheet, Camera } from "lucide-react";
+import { ClipboardCheck, ImageIcon, FileSpreadsheet, Camera, Pin } from "lucide-react";
 
 export function ReviewStep() {
   const {
@@ -20,11 +20,15 @@ export function ReviewStep() {
     csvColumns,
     brandName,
     setBrandName,
+    pinterestImages,
   } = useBulkGeneratorStore();
 
-  const { boxImages } = useBulkGeneratorStore();
-  const shotsPerProduct = boxImages.length > 0 ? 13 : 12;
+  const shotsPerProduct = 8;
   const totalImages = csvRows.length * shotsPerProduct;
+  const totalPinterestImages = Object.values(pinterestImages).reduce(
+    (sum, urls) => sum + urls.length,
+    0
+  );
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -36,13 +40,13 @@ export function ReviewStep() {
             Review & Configure
           </CardTitle>
           <CardDescription>
-            Review your setup before generating. Each product gets 1 base shot + 4 angle variations.
+            Review your setup before generating. Each product gets 8 styled shots across 3 phases.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-6">
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/50 p-4">
               <ImageIcon className="size-5 text-primary" />
               <span className="text-2xl font-bold">{referenceImages.length}</span>
@@ -52,6 +56,11 @@ export function ReviewStep() {
               <FileSpreadsheet className="size-5 text-primary" />
               <span className="text-2xl font-bold">{csvRows.length}</span>
               <span className="text-xs text-muted-foreground">Products</span>
+            </div>
+            <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/50 p-4">
+              <Pin className="size-5 text-primary" />
+              <span className="text-2xl font-bold">{totalPinterestImages}</span>
+              <span className="text-xs text-muted-foreground">Pinterest Images</span>
             </div>
             <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/50 p-4">
               <Camera className="size-5 text-primary" />
@@ -108,6 +117,9 @@ export function ReviewStep() {
                       </th>
                     ))}
                     <th className="px-4 py-2 text-left font-medium text-muted-foreground">
+                      Pinterest
+                    </th>
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">
                       Output
                     </th>
                   </tr>
@@ -121,6 +133,9 @@ export function ReviewStep() {
                           {row[col] || "-"}
                         </td>
                       ))}
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {(pinterestImages[String(idx)] ?? []).length}
+                      </td>
                       <td className="px-4 py-2">
                         <Badge variant="secondary" className="text-xs">
                           {shotsPerProduct} images
@@ -136,36 +151,29 @@ export function ReviewStep() {
           {/* Generation Breakdown */}
           <div className="rounded-lg border bg-muted/30 p-4 text-sm">
             <p className="mb-2 font-medium">Per product, the system will generate {shotsPerProduct} images:</p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-muted-foreground">
+            <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-muted-foreground">
               <div>
-                <p className="mb-1 font-medium text-foreground">Product Shots (10)</p>
+                <p className="mb-1 font-medium text-foreground">Phase 1 — Hero (1)</p>
                 <ol className="ml-4 list-decimal space-y-0.5">
-                  <li>Hero Front — E-commerce marketplace</li>
-                  <li>3/4 Left View — Form & depth</li>
-                  <li>3/4 Right View — Alternate angle</li>
-                  <li>Low Angle Hero — Power & dominance</li>
-                  <li>Macro Detail — Cap & label close-up</li>
-                  <li>Mirror Reflection — Luxury elegance</li>
-                  <li>Smoke & Mist — Mysterious atmosphere</li>
-                  <li>Ingredients Editorial — Fragrance story</li>
-                  <li>Luxury Lifestyle — Vanity still-life</li>
-                  <li>Flat Lay — Top-down composition</li>
+                  <li>Bottle + Box Hero</li>
                 </ol>
               </div>
               <div>
-                <p className="mb-1 font-medium text-foreground">Human Model Shots (2)</p>
-                <ol className="ml-4 list-decimal space-y-0.5" start={11}>
-                  <li>Male Model — Masculine lifestyle</li>
-                  <li>Female Model — Feminine elegance</li>
+                <p className="mb-1 font-medium text-foreground">Phase 2 — Styled (4)</p>
+                <ol className="ml-4 list-decimal space-y-0.5" start={2}>
+                  <li>Styled Front</li>
+                  <li>Styled 3/4</li>
+                  <li>Styled Low Angle</li>
+                  <li>Styled Close-up</li>
                 </ol>
-                {boxImages.length > 0 && (
-                  <>
-                    <p className="mb-1 mt-3 font-medium text-foreground">Packaging (1)</p>
-                    <ol className="ml-4 list-decimal space-y-0.5" start={13}>
-                      <li>Packaging Box — Color variant</li>
-                    </ol>
-                  </>
-                )}
+              </div>
+              <div>
+                <p className="mb-1 font-medium text-foreground">Phase 3 — Lifestyle (3)</p>
+                <ol className="ml-4 list-decimal space-y-0.5" start={6}>
+                  <li>Lifestyle Editorial</li>
+                  <li>Smoke & Mood</li>
+                  <li>Mirror Reflection</li>
+                </ol>
               </div>
             </div>
           </div>

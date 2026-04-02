@@ -45,6 +45,7 @@ class BulkGenerateRequest(BaseModel):
     reference_images: list[str] = Field(..., min_length=1)
     box_images: list[str] = []
     brand_name: str = "Fumera"
+    per_product_pinterest: dict[str, list[str]] = {}  # {"0": [urls], "1": [urls]}
     api_key: str | None = None
 
 
@@ -110,6 +111,35 @@ async def upload_box_images(
         with open(filepath, "wb") as out:
             out.write(content)
         urls.append(f"/uploads/bulk-generator/boxes/{filename}")
+
+    return {"urls": urls, "count": len(urls)}
+
+
+@router.post("/upload-pinterest")
+async def upload_pinterest_images(
+    files: list[UploadFile] = File(...),
+    current_user: AuthUser = Depends(get_current_user),
+) -> dict:
+    """Upload Pinterest/inspiration images for a specific product row."""
+    uploads_dir = _UPLOADS_DIR / "pinterest"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    urls: list[str] = []
+    ts = int(time.time())
+
+    for f in files:
+        if not f.content_type or f.content_type not in ALLOWED_IMAGE_TYPES:
+            continue
+        content = await f.read()
+        if len(content) > MAX_FILE_SIZE:
+            continue
+        original = f.filename or "image.jpg"
+        sanitized = "".join(c if c.isalnum() or c in ".-_" else "_" for c in original)
+        filename = f"{ts}-{sanitized}"
+        filepath = uploads_dir / filename
+        with open(filepath, "wb") as out:
+            out.write(content)
+        urls.append(f"/uploads/bulk-generator/pinterest/{filename}")
 
     return {"urls": urls, "count": len(urls)}
 
@@ -192,6 +222,7 @@ async def generate_stream(
     reference_images = request.reference_images
     box_images = request.box_images
     brand_name = request.brand_name
+    per_product_pinterest = request.per_product_pinterest
     api_key = request.api_key
 
     async def event_generator():
@@ -202,6 +233,7 @@ async def generate_stream(
                 rows=rows,
                 reference_image_urls=reference_images,
                 brand_name=brand_name,
+                per_product_pinterest=per_product_pinterest or None,
                 box_reference_urls=box_images or None,
             ):
                 event_type = event.pop("event", "image")

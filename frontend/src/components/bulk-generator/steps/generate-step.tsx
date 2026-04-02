@@ -20,6 +20,7 @@ export function GenerateStep() {
     referenceImages,
     boxImages,
     brandName,
+    pinterestImages,
     generatedImages,
     isGenerating,
     currentRowIndex,
@@ -37,8 +38,7 @@ export function GenerateStep() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const hasBox = boxImages.length > 0;
-  const shotsPerProduct = hasBox ? 13 : 12;  // 12 shots + optional box
+  const shotsPerProduct = 8;  // new pipeline always generates 8 shots per product
   const totalExpected = csvRows.length * shotsPerProduct;
   const completedCount = generatedImages.filter((img) => img.status === "done").length;
   const errorCount = generatedImages.filter((img) => img.status === "error").length;
@@ -63,6 +63,7 @@ export function GenerateStep() {
           reference_images: referenceImages,
           box_images: boxImages,
           brand_name: brandName,
+          per_product_pinterest: pinterestImages,
         }),
         signal: controller.signal,
       });
@@ -148,7 +149,7 @@ export function GenerateStep() {
       setIsGenerating(false);
       abortRef.current = null;
     }
-  }, [csvRows, referenceImages, brandName, setError, setIsGenerating, setGeneratedImages, setCurrentRowIndex, setTotalRows, addGeneratedImage]);
+  }, [csvRows, referenceImages, brandName, pinterestImages, setError, setIsGenerating, setGeneratedImages, setCurrentRowIndex, setTotalRows, addGeneratedImage]);
 
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
@@ -235,10 +236,10 @@ export function GenerateStep() {
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold">{productName}</h3>
                   <Badge variant="outline" className="text-xs">
-                    {images.filter((i) => i.status === "done").length} / {shotsPerProduct}
+                    {images.filter((i) => i.status === "done").length} / 8
                   </Badge>
                 </div>
-                <div className="grid grid-cols-4 gap-3 sm:grid-cols-5 lg:grid-cols-6">
+                <div className="grid grid-cols-4 gap-3">
                   {images.map((img) => (
                     <div
                       key={img.id}

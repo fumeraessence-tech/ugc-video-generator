@@ -10,16 +10,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Upload, FileSpreadsheet, Trash2, X } from "lucide-react";
+import { Upload, FileSpreadsheet, Trash2, X, ImagePlus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 export function CsvUploadStep() {
-  const { csvRows, csvColumns, csvFileName, setCsvData, removeCsvRow, clearCsv } =
-    useBulkGeneratorStore();
+  const {
+    csvRows, csvColumns, csvFileName, setCsvData, removeCsvRow, clearCsv,
+    pinterestImages, addPinterestImages,
+  } = useBulkGeneratorStore();
 
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pinterestInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const [uploadingPinterest, setUploadingPinterest] = useState<number | null>(null);
 
   const uploadCsv = useCallback(
     async (file: File) => {
@@ -77,6 +82,34 @@ export function CsvUploadStep() {
       if (file) uploadCsv(file);
     },
     [uploadCsv]
+  );
+
+  const handlePinterestUpload = useCallback(
+    async (rowIndex: number, files: FileList) => {
+      setUploadingPinterest(rowIndex);
+      try {
+        const formData = new FormData();
+        Array.from(files).forEach((f) => formData.append("files", f));
+
+        const res = await fetch("/api/bulk-generator/upload-pinterest", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.detail ?? body?.error ?? `Upload failed (${res.status})`);
+        }
+
+        const data = await res.json();
+        addPinterestImages(rowIndex, data.urls);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Pinterest upload failed.");
+      } finally {
+        setUploadingPinterest(null);
+      }
+    },
+    [addPinterestImages]
   );
 
   return (
@@ -167,6 +200,7 @@ Golden Oud,rich gold`}
                           {col}
                         </th>
                       ))}
+                      <th className="px-4 py-2 text-center font-medium text-muted-foreground">Pinterest</th>
                       <th className="px-4 py-2 text-right font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
@@ -179,6 +213,35 @@ Golden Oud,rich gold`}
                             {row[col] || <span className="text-muted-foreground">-</span>}
                           </td>
                         ))}
+                        <td className="px-4 py-2 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              disabled={uploadingPinterest === idx}
+                              onClick={() => pinterestInputRefs.current[idx]?.click()}
+                            >
+                              <ImagePlus className="size-3.5" />
+                            </Button>
+                            {(pinterestImages[String(idx)]?.length ?? 0) > 0 && (
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                {pinterestImages[String(idx)].length} ref{pinterestImages[String(idx)].length === 1 ? "" : "s"}
+                              </Badge>
+                            )}
+                            <input
+                              ref={(el) => { pinterestInputRefs.current[idx] = el; }}
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => {
+                                if (e.target.files?.length) handlePinterestUpload(idx, e.target.files);
+                                e.target.value = "";
+                              }}
+                            />
+                          </div>
+                        </td>
                         <td className="px-4 py-2 text-right">
                           <Button
                             variant="ghost"

@@ -52,12 +52,16 @@ interface BulkGeneratorStore {
   // Step 1: Reference Images
   referenceImages: string[];
   boxImages: string[];
+  pinterestImages: Record<string, string[]>;
   setReferenceImages: (images: string[]) => void;
   addReferenceImages: (urls: string[]) => void;
   removeReferenceImage: (url: string) => void;
   setBoxImages: (images: string[]) => void;
   addBoxImages: (urls: string[]) => void;
   removeBoxImage: (url: string) => void;
+  addPinterestImages: (rowIndex: number, urls: string[]) => void;
+  removePinterestImage: (rowIndex: number, url: string) => void;
+  clearPinterestImages: (rowIndex: number) => void;
 
   // Step 2: CSV
   csvRows: CsvRow[];
@@ -95,6 +99,7 @@ const initialState = {
   currentStep: "reference" as BulkStep,
   referenceImages: [] as string[],
   boxImages: [] as string[],
+  pinterestImages: {} as Record<string, string[]>,
   csvRows: [] as CsvRow[],
   csvColumns: [] as string[],
   csvFileName: "",
@@ -135,6 +140,24 @@ export const useBulkGeneratorStore = create<BulkGeneratorStore>()((set, get) => 
     set((s) => ({ boxImages: [...s.boxImages, ...urls] })),
   removeBoxImage: (url) =>
     set((s) => ({ boxImages: s.boxImages.filter((u) => u !== url) })),
+  addPinterestImages: (rowIndex, urls) =>
+    set((s) => {
+      const key = String(rowIndex);
+      const existing = s.pinterestImages[key] ?? [];
+      return { pinterestImages: { ...s.pinterestImages, [key]: [...existing, ...urls] } };
+    }),
+  removePinterestImage: (rowIndex, url) =>
+    set((s) => {
+      const key = String(rowIndex);
+      const existing = s.pinterestImages[key] ?? [];
+      return { pinterestImages: { ...s.pinterestImages, [key]: existing.filter((u) => u !== url) } };
+    }),
+  clearPinterestImages: (rowIndex) =>
+    set((s) => {
+      const key = String(rowIndex);
+      const { [key]: _, ...rest } = s.pinterestImages;
+      return { pinterestImages: rest };
+    }),
 
   // Step 2: CSV
   setCsvData: (rows, columns, fileName) =>
