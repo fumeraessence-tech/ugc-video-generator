@@ -103,87 +103,89 @@ def _build_replace_prompt(
         )
 
     elif shot_key == "pinterest_front":
+        # Image order: Pinterest(scene) → Bottle(product) → chain
         return (
             f"Using these reference images: "
-            f"Take the background setting, surface, props, and lighting from the Pinterest/style reference image. "
+            f"Take the background setting, surface, props, and lighting from the first image. "
             f"Remove the existing bottle. "
-            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the bottle reference image) in its place. "
+            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the second image) in its place. "
             f"The perfume liquid should be {liquid}. "
             f"On the bottle's black label band, replace the product name with '{product_name}' using white serif typography. "
-            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the bottle reference, all text white. "
-            f"Camera: straight-on front view, label fully visible and readable. "
-            f"Maintain the same lighting, mood, and composition from the Pinterest reference. "
+            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the second image, but make all text white. "
+            f"Maintain the same dramatic lighting, camera angle, and composition from the first image. "
+            f"Camera: straight-on front view, label fully visible. "
             f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
         )
 
     elif shot_key == "pinterest_three_quarter":
         return (
             f"Using these reference images: "
-            f"Take the background setting, surface, props, and lighting from the Pinterest/style reference image. "
+            f"Take the background setting, surface, props, and lighting from the first image. "
             f"Remove the existing bottle. "
-            f"Place a {brand} perfume bottle (same exact shape as the bottle reference image) "
+            f"Place a {brand} perfume bottle (same exact shape as the second image) "
             f"rotated ~45° to show its 3D form and glass depth. "
             f"The perfume liquid should be {liquid}. "
             f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
-            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the bottle reference, all text white. "
-            f"Rim light from the side creates a highlight on the glass edge. "
-            f"Maintain the same mood and atmosphere from the Pinterest reference. "
+            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the second image, all text white. "
+            f"Maintain the same mood and atmosphere from the first image. "
             f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
         )
 
     elif shot_key == "pinterest_low_angle":
         return (
             f"Using these reference images: "
-            f"Take the lighting mood and atmosphere from the Pinterest/style reference image. "
-            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the bottle reference image) "
+            f"Take the lighting mood and atmosphere from the first image. "
+            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the second image) "
             f"and photograph it from a LOW ANGLE — camera below the bottle looking up at ~30°. "
             f"The bottle appears powerful and towering. "
             f"The perfume liquid should be {liquid}. "
             f"Strong backlight makes the liquid glow through the glass. "
             f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
-            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown, all text white. "
+            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the second image, all text white. "
             f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
         )
 
     elif shot_key == "pinterest_detail":
         return (
             f"Using these reference images: "
-            f"Create an extreme close-up/macro shot of the {brand} perfume bottle from the bottle reference image. "
+            f"Take the lighting and color grading from the first image. "
+            f"Create an extreme close-up/macro shot of the {brand} perfume bottle from the second image. "
             f"The perfume liquid should be {liquid}. "
-            f"Tight crop on the cap and label area — cap fills the top, black label band in the middle. "
+            f"Tight crop on the label and cap area. "
             f"On the black label band, the product name '{product_name}' and '{brand}' logo must be tack-sharp "
             f"and clearly readable — all in white text. "
-            f"Keep the exact same bottle shape, cap (gold ring at top + gold ring at bottom + black ribbed body), "
-            f"and label band design from the bottle reference. "
-            f"Shallow depth of field — label sharp, edges soft. Bottle fills 90%+ of frame. "
+            f"Keep the exact same bottle shape, cap (gold ring top + gold ring bottom + black ribbed), "
+            f"and label band design from the second image. "
+            f"Shallow depth of field — label sharp, edges soft. Bottle fills 85%+ of frame. "
             f"Professional luxury perfume macro photography. 1:1 aspect ratio."
         )
 
     elif shot_key == "lifestyle_editorial":
         return (
             f"Using these reference images: "
-            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the bottle reference image) "
+            f"Take the mood and styling inspiration from the first image. "
+            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the second image) "
             f"on a premium marble vanity with luxury props — leather journal, watch, silk pocket square, single flower. "
             f"The perfume liquid should be {liquid}. "
             f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
-            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown, all text white. "
+            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the second image, all text white. "
             f"The bottle is the hero — props support but don't compete. "
-            f"Warm moody golden lighting, Rembrandt-style side light. Shallow depth of field. "
-            f"No human model. "
+            f"Warm moody golden lighting. No human model. "
             f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
         )
 
     elif shot_key == "smoke_mood":
         return (
             f"Using these reference images: "
-            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the bottle reference image) "
+            f"Take the color grading from the first image. "
+            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the second image) "
             f"emerging from soft ethereal smoke/mist at its base. "
             f"The perfume liquid should be {liquid}. "
             f"Background: very dark, near-black. Smoke wisps around the base, backlit. "
-            f"The smoke does NOT obscure the label or logo. "
-            f"Strong backlight makes the liquid glow through the glass dramatically. "
+            f"Smoke does NOT obscure the label or logo. "
+            f"Strong backlight makes the liquid glow through the glass. "
             f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
-            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown, all text white. "
+            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the second image, all text white. "
             f"Mood: mysterious, intoxicating. "
             f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
         )
@@ -191,14 +193,15 @@ def _build_replace_prompt(
     elif shot_key == "reflection_luxury":
         return (
             f"Using these reference images: "
-            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the bottle reference image) "
+            f"Take the lighting mood from the first image. "
+            f"Place a {brand} perfume bottle (same exact shape, glass, and cap as the second image) "
             f"on a polished black mirror/glass surface that creates a perfect reflection beneath it. "
             f"The perfume liquid should be {liquid}. "
             f"Camera: slightly low angle. Background: deep black gradient. "
-            f"Dramatic key light from front-left, rim light from behind creating a luminous edge. "
+            f"Dramatic key light from front-left, rim light from behind. "
             f"The liquid glows through the glass from the backlight. "
             f"On the bottle's black label band, replace the product name with '{product_name}' in white text. "
-            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown, all text white. "
+            f"Keep '{brand}' logo and 'ESSENCE' text exactly as shown on the second image, all text white. "
             f"Professional luxury perfume commercial photography. 1:1 aspect ratio."
         )
 
@@ -267,22 +270,35 @@ class BulkImageService:
         box_parts: list[types.Part],
         pinterest_parts: list[types.Part],
         generated_parts: list[types.Part],
+        pinterest_first: bool = False,
     ) -> list[types.Part]:
-        """Assemble: text prompt FIRST, then images in order.
+        """Assemble: text prompt FIRST, then images.
 
-        This follows the working image_generator_service pattern:
-        text instruction first → model reads the task → then interprets images.
+        For Phase 2-3 shots (pinterest_first=True):
+          prompt → Pinterest (scene) → bottle (product to clone) → chain
+          This matches the working image_generator pattern where the
+          "scene" image comes first and the bottle reference second.
+
+        For Phase 1 (bottle_box_hero):
+          prompt → bottle → box
         """
         all_parts: list[types.Part] = []
 
-        # Text FIRST (working pattern from image_generator_service)
+        # Text FIRST
         all_parts.append(types.Part.from_text(text=prompt))
 
-        # Then images in order: bottle → box → pinterest → generated
-        all_parts.extend(bottle_parts)
-        all_parts.extend(box_parts)
-        all_parts.extend(pinterest_parts)
-        all_parts.extend(generated_parts)
+        if pinterest_first and pinterest_parts:
+            # Pinterest scene FIRST, then bottle ref — matches "first image" / "second image" in prompt
+            all_parts.extend(pinterest_parts)
+            all_parts.extend(bottle_parts)
+            all_parts.extend(box_parts)
+            all_parts.extend(generated_parts)
+        else:
+            # Default: bottle → box → pinterest → generated
+            all_parts.extend(bottle_parts)
+            all_parts.extend(box_parts)
+            all_parts.extend(pinterest_parts)
+            all_parts.extend(generated_parts)
 
         return all_parts
 
@@ -339,12 +355,29 @@ class BulkImageService:
             elif shot["phase"] == 3:
                 chain_parts = generated_parts[:3]  # Phase 1 + first 2 angles
 
+            # Only bottle_box_hero gets box refs — other shots only get bottle + pinterest + chain
+            use_box = shot["key"] == "bottle_box_hero"
+
+            # Phase 2-3: Pinterest scene FIRST so prompt's "first image" = Pinterest
+            is_styled = shot["phase"] >= 2
+
             parts = self._build_content_parts(
                 prompt=prompt,
                 bottle_parts=bottle_ref_parts,
-                box_parts=box_ref_parts if shot["key"] == "bottle_box_hero" or shot["phase"] >= 2 else [],
+                box_parts=box_ref_parts if use_box else [],
                 pinterest_parts=pinterest_ref_parts,
                 generated_parts=chain_parts,
+                pinterest_first=is_styled,
+            )
+
+            logger.info(
+                "Shot %s [%s]: %d bottle + %d box + %d pinterest + %d chain = %d total parts",
+                shot["key"], product_name,
+                len(bottle_ref_parts),
+                len(box_ref_parts) if use_box else 0,
+                len(pinterest_ref_parts),
+                len(chain_parts),
+                len(parts),
             )
 
             try:
