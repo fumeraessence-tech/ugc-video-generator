@@ -46,6 +46,7 @@ class BulkGenerateRequest(BaseModel):
     box_images: list[str] = []
     brand_name: str = "Fumera"
     per_product_pinterest: dict[str, list[str]] = {}  # {"0": [urls], "1": [urls]}
+    per_product_avatar: dict[str, list[str]] = {}  # {"0": [urls], "1": [urls]}
     api_key: str | None = None
 
 
@@ -144,6 +145,35 @@ async def upload_pinterest_images(
     return {"urls": urls, "count": len(urls)}
 
 
+@router.post("/upload-avatar")
+async def upload_avatar_images(
+    files: list[UploadFile] = File(...),
+    current_user: AuthUser = Depends(get_current_user),
+) -> dict:
+    """Upload avatar/person images for a specific product row."""
+    uploads_dir = _UPLOADS_DIR / "avatars"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    urls: list[str] = []
+    ts = int(time.time())
+
+    for f in files:
+        if not f.content_type or f.content_type not in ALLOWED_IMAGE_TYPES:
+            continue
+        content = await f.read()
+        if len(content) > MAX_FILE_SIZE:
+            continue
+        original = f.filename or "image.jpg"
+        sanitized = "".join(c if c.isalnum() or c in ".-_" else "_" for c in original)
+        filename = f"{ts}-{sanitized}"
+        filepath = uploads_dir / filename
+        with open(filepath, "wb") as out:
+            out.write(content)
+        urls.append(f"/uploads/bulk-generator/avatars/{filename}")
+
+    return {"urls": urls, "count": len(urls)}
+
+
 @router.post("/upload-csv")
 async def upload_csv(
     file: UploadFile = File(...),
@@ -223,7 +253,17 @@ async def generate_stream(
     box_images = request.box_images
     brand_name = request.brand_name
     per_product_pinterest = request.per_product_pinterest
+    per_product_avatar = request.per_product_avatar
     api_key = request.api_key
+
+    logger.warning(
+        ">>> GENERATE REQUEST: %d rows, %d refs, %d box, pinterest_keys=%s, pinterest_data=%s, avatar_keys=%s, avatar_data=%s",
+        len(rows), len(reference_images), len(box_images),
+        list(per_product_pinterest.keys()) if per_product_pinterest else "NONE",
+        {k: len(v) for k, v in per_product_pinterest.items()} if per_product_pinterest else "NONE",
+        list(per_product_avatar.keys()) if per_product_avatar else "NONE",
+        {k: len(v) for k, v in per_product_avatar.items()} if per_product_avatar else "NONE",
+    )
 
     async def event_generator():
         service = BulkImageService(api_key=api_key)
@@ -234,6 +274,7 @@ async def generate_stream(
                 reference_image_urls=reference_images,
                 brand_name=brand_name,
                 per_product_pinterest=per_product_pinterest or None,
+                per_product_avatar=per_product_avatar or None,
                 box_reference_urls=box_images or None,
             ):
                 event_type = event.pop("event", "image")

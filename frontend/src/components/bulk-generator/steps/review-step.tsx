@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardCheck, ImageIcon, FileSpreadsheet, Camera, Pin } from "lucide-react";
+import { ClipboardCheck, ImageIcon, FileSpreadsheet, Camera, Pin, User } from "lucide-react";
 
 export function ReviewStep() {
   const {
@@ -21,11 +21,16 @@ export function ReviewStep() {
     brandName,
     setBrandName,
     pinterestImages,
+    avatarImages,
   } = useBulkGeneratorStore();
 
-  const shotsPerProduct = 8;
+  const shotsPerProduct = 9;
   const totalImages = csvRows.length * shotsPerProduct;
   const totalPinterestImages = Object.values(pinterestImages).reduce(
+    (sum, urls) => sum + urls.length,
+    0
+  );
+  const totalAvatarImages = Object.values(avatarImages).reduce(
     (sum, urls) => sum + urls.length,
     0
   );
@@ -40,13 +45,13 @@ export function ReviewStep() {
             Review & Configure
           </CardTitle>
           <CardDescription>
-            Review your setup before generating. Each product gets 8 styled shots across 3 phases.
+            Review your setup before generating. Each product gets 9 styled shots.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-6">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-5 gap-4">
             <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/50 p-4">
               <ImageIcon className="size-5 text-primary" />
               <span className="text-2xl font-bold">{referenceImages.length}</span>
@@ -61,6 +66,11 @@ export function ReviewStep() {
               <Pin className="size-5 text-primary" />
               <span className="text-2xl font-bold">{totalPinterestImages}</span>
               <span className="text-xs text-muted-foreground">Pinterest Images</span>
+            </div>
+            <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/50 p-4">
+              <User className="size-5 text-primary" />
+              <span className="text-2xl font-bold">{totalAvatarImages}</span>
+              <span className="text-xs text-muted-foreground">Avatar Images</span>
             </div>
             <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/50 p-4">
               <Camera className="size-5 text-primary" />
@@ -151,31 +161,17 @@ export function ReviewStep() {
           {/* Generation Breakdown */}
           <div className="rounded-lg border bg-muted/30 p-4 text-sm">
             <p className="mb-2 font-medium">Per product, the system will generate {shotsPerProduct} images:</p>
-            <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-muted-foreground">
-              <div>
-                <p className="mb-1 font-medium text-foreground">Phase 1 — Hero (1)</p>
-                <ol className="ml-4 list-decimal space-y-0.5">
-                  <li>Bottle + Box Hero</li>
-                </ol>
-              </div>
-              <div>
-                <p className="mb-1 font-medium text-foreground">Phase 2 — Styled (4)</p>
-                <ol className="ml-4 list-decimal space-y-0.5" start={2}>
-                  <li>Styled Front</li>
-                  <li>Styled 3/4</li>
-                  <li>Styled Low Angle</li>
-                  <li>Styled Close-up</li>
-                </ol>
-              </div>
-              <div>
-                <p className="mb-1 font-medium text-foreground">Phase 3 — Lifestyle (3)</p>
-                <ol className="ml-4 list-decimal space-y-0.5" start={6}>
-                  <li>Lifestyle Editorial</li>
-                  <li>Smoke & Mood</li>
-                  <li>Mirror Reflection</li>
-                </ol>
-              </div>
-            </div>
+            <ol className="ml-4 list-decimal space-y-0.5 text-muted-foreground">
+              <li>Bottle + Box Hero</li>
+              <li>Pinterest Scene + Box</li>
+              <li>Styled Product</li>
+              <li>Key Notes (from CSV)</li>
+              <li>Avatar + Bottle</li>
+              <li>Creative Dynamic</li>
+              <li>Variant Size 1 (from CSV)</li>
+              <li>Variant Size 2 (from CSV)</li>
+              <li>Variant Size 3 (from CSV)</li>
+            </ol>
           </div>
         </CardContent>
       </Card>

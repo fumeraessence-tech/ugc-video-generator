@@ -21,6 +21,7 @@ export function GenerateStep() {
     boxImages,
     brandName,
     pinterestImages,
+    avatarImages,
     generatedImages,
     isGenerating,
     currentRowIndex,
@@ -38,7 +39,7 @@ export function GenerateStep() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const shotsPerProduct = 8;  // new pipeline always generates 8 shots per product
+  const shotsPerProduct = 9;  // new pipeline always generates 9 shots per product
   const totalExpected = csvRows.length * shotsPerProduct;
   const completedCount = generatedImages.filter((img) => img.status === "done").length;
   const errorCount = generatedImages.filter((img) => img.status === "error").length;
@@ -64,6 +65,7 @@ export function GenerateStep() {
           box_images: boxImages,
           brand_name: brandName,
           per_product_pinterest: pinterestImages,
+          per_product_avatar: avatarImages,
         }),
         signal: controller.signal,
       });
@@ -151,7 +153,7 @@ export function GenerateStep() {
       setIsGenerating(false);
       abortRef.current = null;
     }
-  }, [csvRows, referenceImages, brandName, pinterestImages, setError, setIsGenerating, setGeneratedImages, setCurrentRowIndex, setTotalRows, addGeneratedImage]);
+  }, [csvRows, referenceImages, brandName, pinterestImages, avatarImages, setError, setIsGenerating, setGeneratedImages, setCurrentRowIndex, setTotalRows, addGeneratedImage]);
 
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
@@ -238,7 +240,7 @@ export function GenerateStep() {
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold">{productName}</h3>
                   <Badge variant="outline" className="text-xs">
-                    {images.filter((i) => i.status === "done").length} / 8
+                    {images.filter((i) => i.status === "done").length} / 9
                   </Badge>
                 </div>
                 <div className="grid grid-cols-4 gap-3">
