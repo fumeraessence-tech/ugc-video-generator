@@ -45,11 +45,38 @@ CREATIVE_STYLES = [
     ("flat_lay", "from directly above, bottle lying on white marble with scattered flower petals, silk ribbon, and small gold accents. Soft overhead light."),
 ]
 
-# Fixed 3 variants — same for every product
+# Fixed 3 variants — each with a conversion-friendly creative context
 FIXED_VARIANTS = [
-    {"label": "50ml (25% Oil Con.)", "desc": "elegant 50ml mid-size bottle with 25% oil concentration, classic proportions", "size_text": "50ml | 25% Oil Concentration"},
-    {"label": "100ml (25% Oil Con.)", "desc": "full-size 100ml premium bottle with 25% oil concentration, substantial and luxurious", "size_text": "100ml | 25% Oil Concentration"},
-    {"label": "100ml (40% Oil Con.)", "desc": "full-size 100ml premium bottle with 40% oil concentration — the most intense, darkest liquid tone", "size_text": "100ml | 40% Oil Concentration"},
+    {
+        "label": "50ml (25% Oil Con.)",
+        "size_text": "50ml | 25% Oil Concentration",
+        "scene": (
+            "on a sleek dark marble surface with soft golden rim lighting from the left. "
+            "A compact leather travel pouch sits half-open beside it, hinting at portability. "
+            "Warm moody atmosphere with a dark gradient background. "
+            "The bottle appears compact and travel-friendly."
+        ),
+    },
+    {
+        "label": "100ml (25% Oil Con.)",
+        "size_text": "100ml | 25% Oil Concentration",
+        "scene": (
+            "on a luxurious vanity surface with a draped silk cloth underneath. "
+            "Warm amber backlighting creates a halo glow around the bottle. "
+            "Props: a gold-rimmed mirror and a single rose petal. "
+            "The full-size bottle looks premium and aspirational. Rich, warm tones."
+        ),
+    },
+    {
+        "label": "100ml (40% Oil Con.)",
+        "size_text": "100ml | 40% Oil Concentration",
+        "scene": (
+            "on a polished obsidian surface with dramatic overhead spotlight. "
+            "Fine gold dust particles shimmer in the air around the bottle. "
+            "The liquid appears richer, deeper, more concentrated. "
+            "A small 'INTENSE' badge or ribbon near the base. Ultra-premium, exclusive, dark luxury."
+        ),
+    },
 ]
 
 
@@ -60,6 +87,17 @@ def _pick_first_note(notes_str: str) -> str:
     return notes_str.split(",")[0].strip()
 
 
+# Strong bottle consistency directive — prepended to every shot prompt
+_BOTTLE_LOCK = (
+    "CRITICAL BOTTLE CONSISTENCY RULE: The perfume bottle MUST be an EXACT pixel-level clone of the bottle reference image. "
+    "Do NOT alter, reimagine, or stylize the bottle shape in ANY way. "
+    "Clone these EXACTLY from the reference: bottle silhouette/outline, cap shape and texture, glass thickness, "
+    "base shape, label band position and width, overall proportions and height-to-width ratio. "
+    "The ONLY things that change are: the product name text on the label, the liquid color, and optionally the label text. "
+    "If the reference bottle is round, it stays round. If square, it stays square. NEVER change the bottle form factor. "
+)
+
+
 def _build_prompt(
     shot_key: str,
     product_name: str,
@@ -68,13 +106,15 @@ def _build_prompt(
     row_data: dict | None = None,
     row_idx: int = 0,
 ) -> str:
-    """Short imperative prompts. Each compositionally unique."""
+    """Short imperative prompts with bottle consistency enforcement."""
     row = row_data or {}
 
     if shot_key == "bottle_box_hero":
         return (
+            f"{_BOTTLE_LOCK}"
             f"Place the perfume bottle from the first image and the packaging box from the second image "
             f"side by side on a clean white surface. Bottle slightly in front. "
+            f"The bottle shape, cap, glass, and proportions MUST be identical to the first image — do NOT change the bottle form. "
             f"The liquid is {liquid}. "
             f"On the bottle's black label band, the product name is '{product_name}' in white serif italic text. "
             f"Keep the '{brand}' logo and 'ESSENCE' text below the band exactly as shown, all white. "
@@ -84,8 +124,10 @@ def _build_prompt(
 
     elif shot_key == "scene_pinterest":
         return (
+            f"{_BOTTLE_LOCK}"
             f"Remove the bottle from the first image. "
             f"Place the perfume bottle from the second image and the packaging box from the third image in its place. "
+            f"The bottle MUST keep the EXACT same shape, cap, and proportions as shown in the second image — do NOT change the bottle design. "
             f"Bottle slightly in front of the box. "
             f"Keep the exact background, surface, props, and lighting from the first image. "
             f"The liquid is {liquid}. "
@@ -95,8 +137,10 @@ def _build_prompt(
 
     elif shot_key == "styled_product":
         return (
+            f"{_BOTTLE_LOCK}"
             f"Remove the bottle from the first image. "
             f"Place the perfume bottle from the second image in its place, elegant composition. "
+            f"The bottle MUST keep the EXACT same shape, cap, and proportions as the second image — clone its silhouette exactly. "
             f"Keep the background, surface, and lighting from the first image. "
             f"The liquid is {liquid}. "
             f"On the black label band: '{product_name}' in white text. "
@@ -105,66 +149,100 @@ def _build_prompt(
         )
 
     elif shot_key == "key_notes":
+        # Images: notes_reference(1st) → pinterest(2nd) → bottle(3rd)
+        # Or: notes_reference(1st) → bottle(2nd) if no pinterest
+        # Or: bottle(1st) only if no notes ref
         top = _pick_first_note(row.get("TOP_NOTES", ""))
         mid = _pick_first_note(row.get("MIDDLE_NOTES", ""))
         base = _pick_first_note(row.get("BASE_NOTES", ""))
+        has_notes_ref = row.get("_has_notes_ref", False)
+        has_pinterest_for_notes = row.get("_has_pinterest_for_notes", False)
+
+        # Build image reference instructions based on what's available
+        if has_notes_ref and has_pinterest_for_notes:
+            img_ref = (
+                "The first image is the LAYOUT REFERENCE — follow its exact card placement, text positioning, and structure. "
+                "The second image is the SCENE/MOOD REFERENCE — use its background atmosphere, color palette, and props to inspire the background. "
+                "The third image is the BOTTLE REFERENCE — use this exact bottle design. "
+            )
+        elif has_notes_ref:
+            img_ref = (
+                "The first image is the LAYOUT REFERENCE — follow its card placement, text positioning, and structure. "
+                "The second image is the BOTTLE REFERENCE — use this exact bottle design. "
+            )
+        else:
+            img_ref = (
+                "The first image is the BOTTLE REFERENCE — use this exact bottle design. "
+            )
+
         return (
-            f"Using these reference images: "
-            f"Create a perfume key notes infographic image. "
-            f"RIGHT SIDE: The perfume bottle from the first image — with '{product_name}' on the black band "
-            f"and '{brand}' logo below, held by a hand or standing prominently. "
-            f"TOP RIGHT: Large text '{product_name}' and below it 'Key Notes' as a subtitle. "
-            f"LEFT SIDE: Three white rounded cards stacked vertically, each with a small illustrated icon and label: "
-            f"1) 'Top Note' with label '{top}' and a matching illustration (e.g. fruit/flower). "
-            f"2) 'Mid Note' with label '{mid}' and a matching illustration. "
-            f"3) 'Base Note' with label '{base}' and a matching illustration. "
-            f"Background color palette should complement the {liquid} liquid color. "
-            f"Style: clean, modern, luxury perfume marketing. 1:1 square."
+            f"{_BOTTLE_LOCK}"
+            f"Create a perfume 'Key Notes' infographic image. "
+            f"{img_ref}"
+            f"LAYOUT STRUCTURE (inspired by the layout reference, not a pixel clone — each product should look unique): "
+            f"— TOP-RIGHT CORNER: '{product_name}' in large white bold serif text, with 'Key Notes' in smaller white italic text directly below it. "
+            f"— LEFT SIDE: Three SQUARE white cards with rounded corners, stacked vertically with even spacing. "
+            f"  Card 1: Label 'Top Note' in white text ABOVE the card. Inside the card: a detailed, realistic, richly painted illustration of '{top}' "
+            f"(full-color detailed realistic illustration like a botanical/ingredient painting — NOT a line icon, NOT an outline drawing). "
+            f"The ingredient name '{top}' in dark text below the illustration inside the card. "
+            f"  Card 2: Label 'Mid Note' in white text ABOVE the card. Inside: a detailed realistic painted illustration of '{mid}'. Name '{mid}' below. "
+            f"  Card 3: Label 'Base Note' in white text ABOVE the card. Inside: a detailed realistic painted illustration of '{base}'. Name '{base}' below. "
+            f"— CENTER-RIGHT: The perfume bottle placed elegantly in the scene (inspired by the mood reference background — could be among rocks, fabric, nature elements, etc.). "
+            f"  On the bottle's black band: '{product_name}' in white text. '{brand}' logo and 'ESSENCE', all white. "
+            f"  The liquid is {liquid}. "
+            f"— BACKGROUND: Atmospheric scene inspired by the mood reference — NOT a plain solid color. Use textures, props, gradients that complement {liquid}. "
+            f"All three note cards must be the SAME size squares. Overall style: clean, modern, luxury. 1:1 square."
         )
 
     elif shot_key == "avatar_bottle":
-        gender = row.get("GENDER", "For Him")
-        if "her" in gender.lower():
-            pose = "elegant female model holding the bottle near her collarbone with a soft smile, silk dress, natural makeup"
-        elif "unisex" in gender.lower():
-            pose = "stylish model in minimal outfit holding the bottle at chest height, confident pose"
-        else:
-            pose = "confident male model in tailored suit holding the bottle at chest height, direct eye contact"
+        # Images: avatar(1st) → bottle(2nd). REPLACE METHOD: pixel-clone person, only swap bottle.
         return (
-            f"Using these reference images: "
-            f"The first image shows a person/avatar. The second image shows the perfume bottle. "
-            f"Create a lifestyle portrait: {pose}. "
-            f"The person holds the perfume bottle (cloned from the second image) — label facing camera. "
-            f"The liquid is {liquid}. On the black band: '{product_name}' in white text. "
-            f"Keep '{brand}' logo and 'ESSENCE' as the second image, all white. "
-            f"EXACTLY 5 fingers on each hand. Natural grip. "
-            f"Shallow depth of field, warm cinematic lighting. 1:1 square."
+            f"{_BOTTLE_LOCK}"
+            f"BOTTLE REPLACEMENT TASK — This is an image editing task, NOT a new image generation. "
+            f"Take the first image as the BASE. This image shows a person holding a perfume bottle. "
+            f"Your job: ONLY replace the bottle they are holding. Everything else stays PIXEL-IDENTICAL. "
+            f"DO NOT change the person's face, skin tone, hair, expression, pose, body, hands, fingers, outfit, or accessories. "
+            f"DO NOT change the background, lighting, shadows, color grading, or camera angle. "
+            f"DO NOT regenerate or reimagine the person — clone them exactly from the first image. "
+            f"ONLY swap the perfume bottle in their hand with the bottle from the second image. "
+            f"The replacement bottle has {liquid} liquid. On the black label band: '{product_name}' in white text. "
+            f"'{brand}' logo and 'ESSENCE' below, all white. Label facing camera. "
+            f"The bottle size should match the hand grip naturally. "
+            f"Keep EVERYTHING else from the first image untouched — same person, same scene, same mood. "
+            f"1:1 square."
         )
 
     elif shot_key == "creative_dynamic":
         style_idx = row_idx % len(CREATIVE_STYLES)
         style_name, style_desc = CREATIVE_STYLES[style_idx]
         return (
+            f"{_BOTTLE_LOCK}"
             f"Place the perfume bottle from the first image {style_desc} "
+            f"The bottle shape, cap, glass, and proportions MUST be identical to the reference — only the scene around it changes. "
             f"The liquid is {liquid}. "
             f"On the black band: '{product_name}' in white text. '{brand}' logo and 'ESSENCE' as shown, all white. "
             f"1:1 square."
         )
 
     elif shot_key.startswith("variant_"):
-        v_desc = row.get("_variant_desc", "full-size bottle")
+        v_scene = row.get("_variant_scene", "on a premium dark surface with elegant lighting")
         v_size_text = row.get("_variant_size_text", "100ml")
         return (
-            f"Create a product shot of the perfume bottle from the first image as a {v_desc}. "
+            f"{_BOTTLE_LOCK}"
+            f"Product photography for e-commerce conversion. "
+            f"Place the perfume bottle from the first image {v_scene} "
             f"The liquid is {liquid}. "
             f"On the black band: '{product_name}' in white text. '{brand}' logo and 'ESSENCE' as shown, all white. "
-            f"At the bottom of the image, display '{v_size_text}' as a clean, elegant, clearly visible text label "
-            f"integrated into the design — prominent but not clashing with the bottle. "
-            f"White/neutral background, professional product photography. 1:1 square."
+            f"IMPORTANT: Do NOT use a plain white or solid-color background. The scene must have depth, atmosphere, and props. "
+            f"Display the text '{v_size_text}' elegantly integrated into the composition — "
+            f"as a clean semi-transparent dark gradient bar at the bottom with white text, or as a floating label. "
+            f"This is a premium conversion-optimized product image. Rich textures, dramatic lighting, luxury feel. "
+            f"1:1 square."
         )
 
     else:
         return (
+            f"{_BOTTLE_LOCK}"
             f"Clone the perfume bottle from the first image. Change product name to '{product_name}'. "
             f"Liquid: {liquid}. All text white. Keep '{brand}' logo. 1:1 square."
         )
@@ -199,94 +277,122 @@ class BulkImageService:
         avatar_ref_parts: list[types.Part],
         row_data: dict,
         row_idx: int = 0,
+        notes_ref_parts: list[types.Part] | None = None,
+        shot_filter: str | None = None,
     ) -> AsyncGenerator[dict, None]:
-        """Generate 9 shots for one product."""
+        """Generate 9 shots for one product. If shot_filter is set, only generate that shot."""
         liquid = liquid_color or "as shown in the bottle reference"
         brand = brand_name or "Fumera"
         safe_name = self._safe_name(product_name)
         has_pinterest = len(pinterest_ref_parts) > 0
         has_avatar = len(avatar_ref_parts) > 0
+        has_notes_ref = bool(notes_ref_parts)
 
         total_shots = 6 + len(FIXED_VARIANTS)  # 6 core + 3 fixed variants = 9
         shot_idx = 0
+
+        def _should_gen(angle: str) -> bool:
+            return shot_filter is None or shot_filter == angle
 
         # Track Shot 3 output for chaining into Shot 4
         shot3_parts: list[types.Part] = []
 
         # ── Shot 1: Bottle + Box Hero ──
-        yield {"event": "generating", "product_name": product_name, "angle": "bottle_box_hero", "label": "Bottle + Box Hero", "index": shot_idx, "total": total_shots}
-        prompt = _build_prompt("bottle_box_hero", product_name, liquid, brand)
-        parts = self._build_content_parts(prompt, bottle_ref_parts, box_ref_parts)
-        url = await self._safe_generate(parts, f"bottle_box_hero-{safe_name}")
-        yield {"event": "image", "product_name": product_name, "angle": "bottle_box_hero", "label": "Bottle + Box Hero", "image_url": url, "index": shot_idx, "total": total_shots}
+        if _should_gen("bottle_box_hero"):
+            yield {"event": "generating", "product_name": product_name, "angle": "bottle_box_hero", "label": "Bottle + Box Hero", "index": shot_idx, "total": total_shots}
+            prompt = _build_prompt("bottle_box_hero", product_name, liquid, brand)
+            parts = self._build_content_parts(prompt, bottle_ref_parts, box_ref_parts)
+            url = await self._safe_generate(parts, f"bottle_box_hero-{safe_name}")
+            yield {"event": "image", "product_name": product_name, "angle": "bottle_box_hero", "label": "Bottle + Box Hero", "image_url": url, "index": shot_idx, "total": total_shots}
         shot_idx += 1
 
         # ── Shot 2: Pinterest Scene + Box ──
-        if has_pinterest:
-            yield {"event": "generating", "product_name": product_name, "angle": "scene_pinterest", "label": "Pinterest Scene", "index": shot_idx, "total": total_shots}
-            prompt = _build_prompt("scene_pinterest", product_name, liquid, brand)
-            scene = [pinterest_ref_parts[0]]
-            parts = self._build_content_parts(prompt, scene, bottle_ref_parts, box_ref_parts)
-            url = await self._safe_generate(parts, f"scene_pinterest-{safe_name}")
-            yield {"event": "image", "product_name": product_name, "angle": "scene_pinterest", "label": "Pinterest Scene", "image_url": url, "index": shot_idx, "total": total_shots}
-        else:
-            yield {"event": "skipped", "product_name": product_name, "angle": "scene_pinterest", "label": "Pinterest Scene", "message": "No Pinterest ref", "index": shot_idx, "total": total_shots}
+        if _should_gen("scene_pinterest"):
+            if has_pinterest:
+                yield {"event": "generating", "product_name": product_name, "angle": "scene_pinterest", "label": "Pinterest Scene", "index": shot_idx, "total": total_shots}
+                prompt = _build_prompt("scene_pinterest", product_name, liquid, brand)
+                scene = [pinterest_ref_parts[0]]
+                parts = self._build_content_parts(prompt, scene, bottle_ref_parts, box_ref_parts)
+                url = await self._safe_generate(parts, f"scene_pinterest-{safe_name}")
+                yield {"event": "image", "product_name": product_name, "angle": "scene_pinterest", "label": "Pinterest Scene", "image_url": url, "index": shot_idx, "total": total_shots}
+            else:
+                yield {"event": "skipped", "product_name": product_name, "angle": "scene_pinterest", "label": "Pinterest Scene", "message": "No Pinterest ref", "index": shot_idx, "total": total_shots}
         shot_idx += 1
 
         # ── Shot 3: Pinterest Styled (feeds Shot 4) ──
-        if has_pinterest:
-            yield {"event": "generating", "product_name": product_name, "angle": "styled_product", "label": "Styled Product", "index": shot_idx, "total": total_shots}
-            prompt = _build_prompt("styled_product", product_name, liquid, brand)
-            pi = min(1, len(pinterest_ref_parts) - 1)
-            scene = [pinterest_ref_parts[pi]]
-            parts = self._build_content_parts(prompt, scene, bottle_ref_parts)
-            url = await self._safe_generate(parts, f"styled_product-{safe_name}")
-            yield {"event": "image", "product_name": product_name, "angle": "styled_product", "label": "Styled Product", "image_url": url, "index": shot_idx, "total": total_shots}
-            # Load for chaining into Shot 4
-            if url:
-                shot3_parts = await self._load_images([url])
-        else:
-            yield {"event": "skipped", "product_name": product_name, "angle": "styled_product", "label": "Styled Product", "message": "No Pinterest ref", "index": shot_idx, "total": total_shots}
+        if _should_gen("styled_product") or (_should_gen("key_notes") and not has_notes_ref):
+            if has_pinterest:
+                yield {"event": "generating", "product_name": product_name, "angle": "styled_product", "label": "Styled Product", "index": shot_idx, "total": total_shots}
+                prompt = _build_prompt("styled_product", product_name, liquid, brand)
+                pi = min(1, len(pinterest_ref_parts) - 1)
+                scene = [pinterest_ref_parts[pi]]
+                parts = self._build_content_parts(prompt, scene, bottle_ref_parts)
+                url = await self._safe_generate(parts, f"styled_product-{safe_name}")
+                yield {"event": "image", "product_name": product_name, "angle": "styled_product", "label": "Styled Product", "image_url": url, "index": shot_idx, "total": total_shots}
+                if url:
+                    shot3_parts = await self._load_images([url])
+            else:
+                yield {"event": "skipped", "product_name": product_name, "angle": "styled_product", "label": "Styled Product", "message": "No Pinterest ref", "index": shot_idx, "total": total_shots}
         shot_idx += 1
 
         # ── Shot 4: Key Notes Infographic ──
-        yield {"event": "generating", "product_name": product_name, "angle": "key_notes", "label": "Key Notes", "index": shot_idx, "total": total_shots}
-        prompt = _build_prompt("key_notes", product_name, liquid, brand, row_data)
-        base_ref = shot3_parts if shot3_parts else bottle_ref_parts  # fallback to bottle if no Shot 3
-        parts = self._build_content_parts(prompt, base_ref, bottle_ref_parts)
-        url = await self._safe_generate(parts, f"key_notes-{safe_name}")
-        yield {"event": "image", "product_name": product_name, "angle": "key_notes", "label": "Key Notes", "image_url": url, "index": shot_idx, "total": total_shots}
+        if _should_gen("key_notes"):
+            yield {"event": "generating", "product_name": product_name, "angle": "key_notes", "label": "Key Notes", "index": shot_idx, "total": total_shots}
+            # Build row_data flags for prompt
+            row_for_notes = {
+                **row_data,
+                "_has_notes_ref": has_notes_ref,
+                "_has_pinterest_for_notes": has_pinterest,
+            }
+            prompt = _build_prompt("key_notes", product_name, liquid, brand, row_for_notes)
+
+            # Image order: notes_ref (layout) → pinterest (mood) → bottle
+            image_groups: list[list[types.Part]] = []
+            if has_notes_ref:
+                image_groups.append(notes_ref_parts)
+            if has_pinterest:
+                # Use first pinterest as mood reference for background
+                pi = min(1, len(pinterest_ref_parts) - 1)
+                image_groups.append([pinterest_ref_parts[pi]])
+            image_groups.append(bottle_ref_parts)
+
+            parts = self._build_content_parts(prompt, *image_groups)
+            url = await self._safe_generate(parts, f"key_notes-{safe_name}")
+            yield {"event": "image", "product_name": product_name, "angle": "key_notes", "label": "Key Notes", "image_url": url, "index": shot_idx, "total": total_shots}
         shot_idx += 1
 
         # ── Shot 5: Avatar + Bottle ──
-        if has_avatar:
-            yield {"event": "generating", "product_name": product_name, "angle": "avatar_bottle", "label": "Avatar + Bottle", "index": shot_idx, "total": total_shots}
-            prompt = _build_prompt("avatar_bottle", product_name, liquid, brand, row_data)
-            parts = self._build_content_parts(prompt, avatar_ref_parts, bottle_ref_parts)
-            url = await self._safe_generate(parts, f"avatar_bottle-{safe_name}")
-            yield {"event": "image", "product_name": product_name, "angle": "avatar_bottle", "label": "Avatar + Bottle", "image_url": url, "index": shot_idx, "total": total_shots}
-        else:
-            yield {"event": "skipped", "product_name": product_name, "angle": "avatar_bottle", "label": "Avatar + Bottle", "message": "No avatar ref", "index": shot_idx, "total": total_shots}
+        if _should_gen("avatar_bottle"):
+            if has_avatar:
+                yield {"event": "generating", "product_name": product_name, "angle": "avatar_bottle", "label": "Avatar + Bottle", "index": shot_idx, "total": total_shots}
+                prompt = _build_prompt("avatar_bottle", product_name, liquid, brand, row_data)
+                parts = self._build_content_parts(prompt, avatar_ref_parts, bottle_ref_parts)
+                url = await self._safe_generate(parts, f"avatar_bottle-{safe_name}")
+                yield {"event": "image", "product_name": product_name, "angle": "avatar_bottle", "label": "Avatar + Bottle", "image_url": url, "index": shot_idx, "total": total_shots}
+            else:
+                yield {"event": "skipped", "product_name": product_name, "angle": "avatar_bottle", "label": "Avatar + Bottle", "message": "No avatar ref", "index": shot_idx, "total": total_shots}
         shot_idx += 1
 
         # ── Shot 6: Creative Dynamic ──
-        yield {"event": "generating", "product_name": product_name, "angle": "creative_dynamic", "label": "Creative Dynamic", "index": shot_idx, "total": total_shots}
-        prompt = _build_prompt("creative_dynamic", product_name, liquid, brand, row_data, row_idx)
-        parts = self._build_content_parts(prompt, bottle_ref_parts)
-        url = await self._safe_generate(parts, f"creative_dynamic-{safe_name}")
-        yield {"event": "image", "product_name": product_name, "angle": "creative_dynamic", "label": "Creative Dynamic", "image_url": url, "index": shot_idx, "total": total_shots}
+        if _should_gen("creative_dynamic"):
+            yield {"event": "generating", "product_name": product_name, "angle": "creative_dynamic", "label": "Creative Dynamic", "index": shot_idx, "total": total_shots}
+            prompt = _build_prompt("creative_dynamic", product_name, liquid, brand, row_data, row_idx)
+            parts = self._build_content_parts(prompt, bottle_ref_parts)
+            url = await self._safe_generate(parts, f"creative_dynamic-{safe_name}")
+            yield {"event": "image", "product_name": product_name, "angle": "creative_dynamic", "label": "Creative Dynamic", "image_url": url, "index": shot_idx, "total": total_shots}
         shot_idx += 1
 
         # ── Shots 7-9: Fixed Variant Sizes ──
         for v_idx, variant in enumerate(FIXED_VARIANTS):
             v_key = f"variant_{v_idx}"
             label = f"Variant {variant['label']}"
-            yield {"event": "generating", "product_name": product_name, "angle": v_key, "label": label, "index": shot_idx, "total": total_shots}
-            row_with_variant = {**row_data, "_variant_desc": variant["desc"], "_variant_size_text": variant["size_text"]}
-            prompt = _build_prompt("variant_", product_name, liquid, brand, row_with_variant)
-            parts = self._build_content_parts(prompt, bottle_ref_parts)
-            url = await self._safe_generate(parts, f"variant_{v_idx}-{safe_name}")
-            yield {"event": "image", "product_name": product_name, "angle": v_key, "label": label, "image_url": url, "index": shot_idx, "total": total_shots}
+            if _should_gen(v_key):
+                yield {"event": "generating", "product_name": product_name, "angle": v_key, "label": label, "index": shot_idx, "total": total_shots}
+                row_with_variant = {**row_data, "_variant_scene": variant["scene"], "_variant_size_text": variant["size_text"]}
+                prompt = _build_prompt("variant_", product_name, liquid, brand, row_with_variant)
+                parts = self._build_content_parts(prompt, bottle_ref_parts)
+                url = await self._safe_generate(parts, f"variant_{v_idx}-{safe_name}")
+                yield {"event": "image", "product_name": product_name, "angle": v_key, "label": label, "image_url": url, "index": shot_idx, "total": total_shots}
             shot_idx += 1
 
     async def _safe_generate(self, parts: list[types.Part], prefix: str) -> str:
@@ -307,6 +413,7 @@ class BulkImageService:
         box_reference_urls: list[str] | None = None,
         per_product_pinterest: dict[str, list[str]] | None = None,
         per_product_avatar: dict[str, list[str]] | None = None,
+        notes_reference_urls: list[str] | None = None,
     ) -> AsyncGenerator[dict, None]:
         total_rows = len(rows)
         pinterest_map = per_product_pinterest or {}
@@ -318,8 +425,12 @@ class BulkImageService:
             return
 
         box_ref_parts = await self._load_images(box_reference_urls or [])
+        notes_ref_parts = await self._load_images(notes_reference_urls or [])
 
-        logger.info("Bulk gen: %d bottle, %d box, %d products", len(bottle_ref_parts), len(box_ref_parts), total_rows)
+        logger.info(
+            "Bulk gen: %d bottle, %d box, %d notes_ref, %d products",
+            len(bottle_ref_parts), len(box_ref_parts), len(notes_ref_parts), total_rows,
+        )
 
         yield {"event": "started", "total_rows": total_rows, "total_images": total_rows * 9, "message": f"Starting: {total_rows} products x 9 shots"}
 
@@ -333,7 +444,7 @@ class BulkImageService:
             avatar_urls = avatar_map.get(str(row_idx), [])
             avatar_parts = await self._load_images(avatar_urls) if avatar_urls else []
 
-            logger.info("Row %d [%s]: %d pinterest, %d avatar", row_idx, product_name, len(pinterest_parts), len(avatar_parts))
+            logger.info("Row %d [%s]: %d pinterest, %d avatar, %d notes_ref", row_idx, product_name, len(pinterest_parts), len(avatar_parts), len(notes_ref_parts))
 
             yield {"event": "row_start", "row_index": row_idx, "total_rows": total_rows, "product_name": product_name}
 
@@ -347,6 +458,7 @@ class BulkImageService:
                 avatar_ref_parts=avatar_parts,
                 row_data=row,
                 row_idx=row_idx,
+                notes_ref_parts=notes_ref_parts if notes_ref_parts else None,
             ):
                 event["row_index"] = row_idx
                 event["total_rows"] = total_rows
@@ -355,6 +467,47 @@ class BulkImageService:
             yield {"event": "row_complete", "row_index": row_idx, "total_rows": total_rows, "product_name": product_name}
 
         yield {"event": "complete", "message": f"All {total_rows} products generated"}
+
+    # ─── Single-Shot Regeneration ─────────────────────────────────
+    async def regenerate_single_shot(
+        self,
+        product_name: str,
+        liquid_color: str,
+        brand_name: str,
+        shot_angle: str,
+        reference_image_urls: list[str],
+        box_reference_urls: list[str] | None = None,
+        pinterest_urls: list[str] | None = None,
+        avatar_urls: list[str] | None = None,
+        notes_reference_urls: list[str] | None = None,
+        row_data: dict | None = None,
+        row_idx: int = 0,
+    ) -> AsyncGenerator[dict, None]:
+        """Regenerate a single shot for one product."""
+        bottle_ref_parts = await self._load_images(reference_image_urls)
+        if not bottle_ref_parts:
+            yield {"event": "error", "message": "No bottle reference images could be loaded"}
+            return
+
+        box_ref_parts = await self._load_images(box_reference_urls or [])
+        pinterest_parts = await self._load_images(pinterest_urls or [])
+        avatar_parts = await self._load_images(avatar_urls or [])
+        notes_ref_parts = await self._load_images(notes_reference_urls or [])
+
+        async for event in self.generate_for_row(
+            product_name=product_name,
+            liquid_color=liquid_color or "",
+            brand_name=brand_name,
+            bottle_ref_parts=bottle_ref_parts,
+            box_ref_parts=box_ref_parts,
+            pinterest_ref_parts=pinterest_parts,
+            avatar_ref_parts=avatar_parts,
+            row_data=row_data or {},
+            row_idx=row_idx,
+            notes_ref_parts=notes_ref_parts if notes_ref_parts else None,
+            shot_filter=shot_angle,
+        ):
+            yield event
 
     # ─── Image Generation ─────────────────────────────────────────
 

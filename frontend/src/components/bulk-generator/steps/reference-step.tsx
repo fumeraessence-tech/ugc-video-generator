@@ -10,14 +10,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Upload, X, ImageIcon, Package } from "lucide-react";
+import { Upload, X, ImageIcon, Package, FileText } from "lucide-react";
 
 const MAX_FILES = 5;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export function ReferenceStep() {
-  const { referenceImages, addReferenceImages, removeReferenceImage, boxImages, addBoxImages, removeBoxImage } =
-    useBulkGeneratorStore();
+  const {
+    referenceImages, addReferenceImages, removeReferenceImage,
+    boxImages, addBoxImages, removeBoxImage,
+    notesReferenceImages, addNotesReferenceImages, removeNotesReferenceImage,
+  } = useBulkGeneratorStore();
 
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,6 +227,56 @@ export function ReferenceStep() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Notes Reference (Optional) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="size-5" />
+            Notes Infographic Reference (Optional)
+          </CardTitle>
+          <CardDescription>
+            Upload a reference image for the Key Notes infographic layout. This
+            will be used as a layout template — same card placement, text
+            positioning, and style — for all products. Each product&apos;s notes
+            image will be inspired by this reference but unique.
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="space-y-6">
+          <NotesRefUploadZone addNotesReferenceImages={addNotesReferenceImages} />
+
+          {notesReferenceImages.length > 0 && (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {notesReferenceImages.map((url) => (
+                <div
+                  key={url}
+                  className="group relative overflow-hidden rounded-xl border bg-muted"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url}
+                    alt="Notes reference"
+                    className="aspect-square w-full object-cover"
+                  />
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="absolute right-2 top-2 size-8 opacity-0 shadow-md transition-opacity group-hover:opacity-100"
+                    onClick={() => removeNotesReferenceImage(url)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            {notesReferenceImages.length} notes reference images uploaded (optional)
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -278,6 +331,75 @@ function BoxUploadZone({ addBoxImages }: { addBoxImages: (urls: string[]) => voi
         </div>
         <p className="text-sm font-medium">
           {uploading ? "Uploading..." : "Upload box/packaging images"}
+        </p>
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) uploadFiles(files);
+          e.target.value = "";
+        }}
+      />
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </>
+  );
+}
+
+function NotesRefUploadZone({ addNotesReferenceImages }: { addNotesReferenceImages: (urls: string[]) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      setError(null);
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        files.forEach((file) => formData.append("files", file));
+        const res = await fetch("/api/bulk-generator/upload-notes-reference", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.detail ?? body?.error ?? `Upload failed (${res.status})`);
+        }
+        const data: { urls: string[]; count: number } = await res.json();
+        addNotesReferenceImages(data.urls);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Upload failed.");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [addNotesReferenceImages]
+  );
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const files = Array.from(e.dataTransfer.files);
+          if (files.length > 0) uploadFiles(files);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        disabled={uploading}
+        className="flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8 text-center transition-colors border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50 cursor-pointer"
+      >
+        <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+          <Upload className="size-5 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium">
+          {uploading ? "Uploading..." : "Upload notes layout reference"}
         </p>
       </button>
       <input

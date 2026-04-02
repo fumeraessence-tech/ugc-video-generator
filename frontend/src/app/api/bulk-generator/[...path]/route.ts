@@ -74,8 +74,8 @@ export async function POST(
       return NextResponse.json(data);
     }
 
-    // Handle SSE streaming for generate-stream
-    if (subPath === "generate-stream") {
+    // Handle SSE streaming for generate-stream and regenerate-shot
+    if (subPath === "generate-stream" || subPath === "regenerate-shot") {
       const body = await request.json().catch(() => ({}));
       const backendRes = await fetch(targetUrl, {
         method: "POST",

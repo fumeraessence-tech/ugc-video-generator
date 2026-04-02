@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useBulkGeneratorStore, type BulkGeneratedImage } from "@/stores/bulk-generator-store";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,13 +12,14 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, Square } from "lucide-react";
+import { Loader2, Play, Square, RefreshCw } from "lucide-react";
 
 export function GenerateStep() {
   const {
     csvRows,
     referenceImages,
     boxImages,
+    notesReferenceImages,
     brandName,
     pinterestImages,
     avatarImages,
@@ -36,6 +37,8 @@ export function GenerateStep() {
     setError,
     nextStep,
   } = useBulkGeneratorStore();
+
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -66,6 +69,7 @@ export function GenerateStep() {
           brand_name: brandName,
           per_product_pinterest: pinterestImages,
           per_product_avatar: avatarImages,
+          notes_reference_images: notesReferenceImages,
         }),
         signal: controller.signal,
       });
@@ -153,12 +157,87 @@ export function GenerateStep() {
       setIsGenerating(false);
       abortRef.current = null;
     }
-  }, [csvRows, referenceImages, brandName, pinterestImages, avatarImages, setError, setIsGenerating, setGeneratedImages, setCurrentRowIndex, setTotalRows, addGeneratedImage]);
+  }, [csvRows, referenceImages, boxImages, notesReferenceImages, brandName, pinterestImages, avatarImages, setError, setIsGenerating, setGeneratedImages, setCurrentRowIndex, setTotalRows, addGeneratedImage]);
 
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
     setIsGenerating(false);
   }, [setIsGenerating]);
+
+  const regenerateSingleShot = useCallback(async (img: BulkGeneratedImage) => {
+    const row = csvRows[img.rowIndex];
+    if (!row) return;
+
+    const id = img.id;
+    setRegeneratingId(id);
+    updateGeneratedImage(id, { status: "generating", error: undefined });
+
+    try {
+      const pinterestUrls = pinterestImages[String(img.rowIndex)] ?? [];
+      const avatarUrls = avatarImages[String(img.rowIndex)] ?? [];
+
+      const res = await fetch("/api/bulk-generator/regenerate-shot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_name: img.productName,
+          liquid_color: row.LIQUID_COLOR ?? "",
+          brand_name: brandName,
+          shot_angle: img.angle,
+          reference_images: referenceImages,
+          box_images: boxImages,
+          pinterest_urls: pinterestUrls,
+          avatar_urls: avatarUrls,
+          notes_reference_images: notesReferenceImages,
+          row_data: row,
+          row_index: img.rowIndex,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.detail ?? `Regeneration failed (${res.status})`);
+      }
+
+      if (!res.body) throw new Error("No response body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentEvent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            const dataStr = line.slice(5).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (currentEvent === "image" && data.image_url) {
+                updateGeneratedImage(id, { imageUrl: data.image_url, status: "done", error: undefined });
+              } else if (currentEvent === "error") {
+                updateGeneratedImage(id, { status: "error", error: data.message ?? "Regeneration failed" });
+              }
+            } catch { /* skip malformed */ }
+            currentEvent = "";
+          }
+        }
+      }
+    } catch (err) {
+      updateGeneratedImage(id, { status: "error", error: err instanceof Error ? err.message : "Regeneration failed" });
+    } finally {
+      setRegeneratingId(null);
+    }
+  }, [csvRows, referenceImages, boxImages, notesReferenceImages, brandName, pinterestImages, avatarImages, updateGeneratedImage]);
 
   // Group images by product
   const imagesByProduct = generatedImages.reduce<Record<string, BulkGeneratedImage[]>>(
@@ -247,16 +326,30 @@ export function GenerateStep() {
                   {images.map((img) => (
                     <div
                       key={img.id}
-                      className="overflow-hidden rounded-lg border bg-muted"
+                      className="group overflow-hidden rounded-lg border bg-muted"
                     >
                       {img.status === "done" && img.imageUrl ? (
                         <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={img.imageUrl}
-                            alt={`${img.productName} - ${img.label}`}
-                            className="aspect-square w-full object-cover"
-                          />
+                          <div className="relative">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={img.imageUrl}
+                              alt={`${img.productName} - ${img.label}`}
+                              className="aspect-square w-full object-cover"
+                            />
+                            {!isGenerating && (
+                              <Button
+                                variant="secondary"
+                                size="icon"
+                                className="absolute right-1 top-1 size-7 opacity-0 shadow-md transition-opacity group-hover:opacity-100"
+                                onClick={() => regenerateSingleShot(img)}
+                                disabled={regeneratingId !== null}
+                                title="Regenerate this image"
+                              >
+                                <RefreshCw className="size-3.5" />
+                              </Button>
+                            )}
+                          </div>
                           <p className="truncate px-2 py-1 text-xs text-muted-foreground">
                             {img.label}
                           </p>
@@ -267,6 +360,23 @@ export function GenerateStep() {
                           <span className="mt-1 text-[10px] text-muted-foreground">
                             {img.label}
                           </span>
+                          {!isGenerating && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-2 h-6 text-[10px]"
+                              onClick={() => regenerateSingleShot(img)}
+                              disabled={regeneratingId !== null}
+                            >
+                              <RefreshCw className="mr-1 size-3" />
+                              Retry
+                            </Button>
+                          )}
+                        </div>
+                      ) : img.status === "generating" ? (
+                        <div className="flex aspect-square flex-col items-center justify-center gap-1">
+                          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground">{img.label}</span>
                         </div>
                       ) : (
                         <div className="flex aspect-square items-center justify-center">

@@ -52,6 +52,7 @@ interface BulkGeneratorStore {
   // Step 1: Reference Images
   referenceImages: string[];
   boxImages: string[];
+  notesReferenceImages: string[];
   pinterestImages: Record<string, string[]>;
   setReferenceImages: (images: string[]) => void;
   addReferenceImages: (urls: string[]) => void;
@@ -59,6 +60,9 @@ interface BulkGeneratorStore {
   setBoxImages: (images: string[]) => void;
   addBoxImages: (urls: string[]) => void;
   removeBoxImage: (url: string) => void;
+  setNotesReferenceImages: (images: string[]) => void;
+  addNotesReferenceImages: (urls: string[]) => void;
+  removeNotesReferenceImage: (url: string) => void;
   addPinterestImages: (rowIndex: number, urls: string[]) => void;
   removePinterestImage: (rowIndex: number, url: string) => void;
   clearPinterestImages: (rowIndex: number) => void;
@@ -104,6 +108,7 @@ const initialState = {
   currentStep: "reference" as BulkStep,
   referenceImages: [] as string[],
   boxImages: [] as string[],
+  notesReferenceImages: [] as string[],
   pinterestImages: {} as Record<string, string[]>,
   avatarImages: {} as Record<string, string[]>,
   csvRows: [] as CsvRow[],
@@ -146,6 +151,11 @@ export const useBulkGeneratorStore = create<BulkGeneratorStore>()((set, get) => 
     set((s) => ({ boxImages: [...s.boxImages, ...urls] })),
   removeBoxImage: (url) =>
     set((s) => ({ boxImages: s.boxImages.filter((u) => u !== url) })),
+  setNotesReferenceImages: (images) => set({ notesReferenceImages: images }),
+  addNotesReferenceImages: (urls) =>
+    set((s) => ({ notesReferenceImages: [...s.notesReferenceImages, ...urls] })),
+  removeNotesReferenceImage: (url) =>
+    set((s) => ({ notesReferenceImages: s.notesReferenceImages.filter((u) => u !== url) })),
   addPinterestImages: (rowIndex, urls) =>
     set((s) => {
       const key = String(rowIndex);

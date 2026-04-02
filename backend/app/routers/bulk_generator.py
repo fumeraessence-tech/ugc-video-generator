@@ -47,6 +47,23 @@ class BulkGenerateRequest(BaseModel):
     brand_name: str = "Fumera"
     per_product_pinterest: dict[str, list[str]] = {}  # {"0": [urls], "1": [urls]}
     per_product_avatar: dict[str, list[str]] = {}  # {"0": [urls], "1": [urls]}
+    notes_reference_images: list[str] = []  # One-time notes layout reference
+    api_key: str | None = None
+
+
+class RegenerateShotRequest(BaseModel):
+    """Request to regenerate a single shot for one product."""
+    product_name: str
+    liquid_color: str = ""
+    brand_name: str = "Fumera"
+    shot_angle: str  # e.g. "bottle_box_hero", "key_notes", "variant_0"
+    reference_images: list[str] = Field(..., min_length=1)
+    box_images: list[str] = []
+    pinterest_urls: list[str] = []
+    avatar_urls: list[str] = []
+    notes_reference_images: list[str] = []
+    row_data: dict = {}
+    row_index: int = 0
     api_key: str | None = None
 
 
@@ -174,6 +191,35 @@ async def upload_avatar_images(
     return {"urls": urls, "count": len(urls)}
 
 
+@router.post("/upload-notes-reference")
+async def upload_notes_reference(
+    files: list[UploadFile] = File(...),
+    current_user: AuthUser = Depends(get_current_user),
+) -> dict:
+    """Upload notes infographic layout reference image (used as template for all products)."""
+    uploads_dir = _UPLOADS_DIR / "notes-reference"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    urls: list[str] = []
+    ts = int(time.time())
+
+    for f in files:
+        if not f.content_type or f.content_type not in ALLOWED_IMAGE_TYPES:
+            continue
+        content = await f.read()
+        if len(content) > MAX_FILE_SIZE:
+            continue
+        original = f.filename or "image.jpg"
+        sanitized = "".join(c if c.isalnum() or c in ".-_" else "_" for c in original)
+        filename = f"{ts}-{sanitized}"
+        filepath = uploads_dir / filename
+        with open(filepath, "wb") as out:
+            out.write(content)
+        urls.append(f"/uploads/bulk-generator/notes-reference/{filename}")
+
+    return {"urls": urls, "count": len(urls)}
+
+
 @router.post("/upload-csv")
 async def upload_csv(
     file: UploadFile = File(...),
@@ -254,15 +300,14 @@ async def generate_stream(
     brand_name = request.brand_name
     per_product_pinterest = request.per_product_pinterest
     per_product_avatar = request.per_product_avatar
+    notes_reference_images = request.notes_reference_images
     api_key = request.api_key
 
     logger.warning(
-        ">>> GENERATE REQUEST: %d rows, %d refs, %d box, pinterest_keys=%s, pinterest_data=%s, avatar_keys=%s, avatar_data=%s",
-        len(rows), len(reference_images), len(box_images),
+        ">>> GENERATE REQUEST: %d rows, %d refs, %d box, %d notes_ref, pinterest_keys=%s, avatar_keys=%s",
+        len(rows), len(reference_images), len(box_images), len(notes_reference_images),
         list(per_product_pinterest.keys()) if per_product_pinterest else "NONE",
-        {k: len(v) for k, v in per_product_pinterest.items()} if per_product_pinterest else "NONE",
         list(per_product_avatar.keys()) if per_product_avatar else "NONE",
-        {k: len(v) for k, v in per_product_avatar.items()} if per_product_avatar else "NONE",
     )
 
     async def event_generator():
@@ -276,6 +321,7 @@ async def generate_stream(
                 per_product_pinterest=per_product_pinterest or None,
                 per_product_avatar=per_product_avatar or None,
                 box_reference_urls=box_images or None,
+                notes_reference_urls=notes_reference_images or None,
             ):
                 event_type = event.pop("event", "image")
                 yield {
@@ -284,6 +330,51 @@ async def generate_stream(
                 }
         except Exception as e:
             logger.exception("Bulk generation streaming failed")
+            yield {
+                "event": "error",
+                "data": json.dumps({"message": str(e)}),
+            }
+
+    return EventSourceResponse(event_generator())
+
+
+# ─── Regenerate Single Shot ───────────────────────────────────────
+
+@router.post("/regenerate-shot")
+async def regenerate_shot(
+    request: RegenerateShotRequest,
+    current_user: AuthUser = Depends(get_current_user),
+) -> EventSourceResponse:
+    """Regenerate a single shot for one product via SSE."""
+    if not request.reference_images:
+        raise HTTPException(status_code=400, detail="Reference images are required")
+
+    api_key = request.api_key
+
+    async def event_generator():
+        service = BulkImageService(api_key=api_key)
+
+        try:
+            async for event in service.regenerate_single_shot(
+                product_name=request.product_name,
+                liquid_color=request.liquid_color,
+                brand_name=request.brand_name,
+                shot_angle=request.shot_angle,
+                reference_image_urls=request.reference_images,
+                box_reference_urls=request.box_images or None,
+                pinterest_urls=request.pinterest_urls or None,
+                avatar_urls=request.avatar_urls or None,
+                notes_reference_urls=request.notes_reference_images or None,
+                row_data=request.row_data,
+                row_idx=request.row_index,
+            ):
+                event_type = event.pop("event", "image")
+                yield {
+                    "event": event_type,
+                    "data": json.dumps(event),
+                }
+        except Exception as e:
+            logger.exception("Single shot regeneration failed")
             yield {
                 "event": "error",
                 "data": json.dumps({"message": str(e)}),
