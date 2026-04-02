@@ -11,13 +11,24 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Download, GalleryHorizontalEnd, X } from "lucide-react";
+import { Download, GalleryHorizontalEnd, X, RefreshCw, Loader2 } from "lucide-react";
 
 export function GalleryStep() {
-  const { generatedImages, csvRows } = useBulkGeneratorStore();
+  const {
+    generatedImages,
+    csvRows,
+    referenceImages,
+    boxImages,
+    notesReferenceImages,
+    brandName,
+    pinterestImages,
+    avatarImages,
+    updateGeneratedImage,
+  } = useBulkGeneratorStore();
   const [downloading, setDownloading] = useState(false);
   const [lightbox, setLightbox] = useState<BulkGeneratedImage | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   const doneImages = generatedImages.filter((img) => img.status === "done" && img.imageUrl);
 
@@ -43,12 +54,17 @@ export function GalleryStep() {
   const downloadZip = useCallback(async () => {
     setDownloading(true);
     try {
-      const imageUrls = doneImages.map((img) => img.imageUrl);
+      // Send structured images with product name + label for per-product folders
+      const images = doneImages.map((img) => ({
+        url: img.imageUrl,
+        product_name: img.productName,
+        label: img.label,
+      }));
       const res = await fetch("/api/bulk-generator/download-zip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          image_urls: imageUrls,
+          images,
           product_name: "bulk-products",
         }),
       });
@@ -69,6 +85,81 @@ export function GalleryStep() {
     }
   }, [doneImages]);
 
+  const regenerateSingleShot = useCallback(async (img: BulkGeneratedImage) => {
+    const row = csvRows[img.rowIndex];
+    if (!row) return;
+
+    const id = img.id;
+    setRegeneratingId(id);
+    updateGeneratedImage(id, { status: "generating", error: undefined });
+
+    try {
+      const pinterestUrls = pinterestImages[String(img.rowIndex)] ?? [];
+      const avatarUrls = avatarImages[String(img.rowIndex)] ?? [];
+
+      const res = await fetch("/api/bulk-generator/regenerate-shot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_name: img.productName,
+          liquid_color: row.LIQUID_COLOR ?? "",
+          brand_name: brandName,
+          shot_angle: img.angle,
+          reference_images: referenceImages,
+          box_images: boxImages,
+          pinterest_urls: pinterestUrls,
+          avatar_urls: avatarUrls,
+          notes_reference_images: notesReferenceImages,
+          row_data: row,
+          row_index: img.rowIndex,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? body?.detail ?? `Regeneration failed (${res.status})`);
+      }
+
+      if (!res.body) throw new Error("No response body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentEvent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            const dataStr = line.slice(5).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (currentEvent === "image" && data.image_url) {
+                updateGeneratedImage(id, { imageUrl: data.image_url, status: "done", error: undefined });
+              } else if (currentEvent === "error") {
+                updateGeneratedImage(id, { status: "error", error: data.message ?? "Regeneration failed" });
+              }
+            } catch { /* skip malformed */ }
+            currentEvent = "";
+          }
+        }
+      }
+    } catch (err) {
+      updateGeneratedImage(id, { status: "error", error: err instanceof Error ? err.message : "Regeneration failed" });
+    } finally {
+      setRegeneratingId(null);
+    }
+  }, [csvRows, referenceImages, boxImages, notesReferenceImages, brandName, pinterestImages, avatarImages, updateGeneratedImage]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <Card>
@@ -84,7 +175,8 @@ export function GalleryStep() {
             </Button>
           </CardTitle>
           <CardDescription>
-            {doneImages.length} images generated for {productNames.length} products
+            {doneImages.length} images generated for {productNames.length} products.
+            Hover any image to regenerate it.
           </CardDescription>
         </CardHeader>
 
@@ -123,21 +215,48 @@ export function GalleryStep() {
                 <h3 className="text-sm font-semibold">{productName}</h3>
                 <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-6">
                   {images.map((img) => (
-                    <button
+                    <div
                       key={img.id}
-                      className="group overflow-hidden rounded-xl border bg-muted transition-shadow hover:shadow-lg"
-                      onClick={() => setLightbox(img)}
+                      className="group relative overflow-hidden rounded-xl border bg-muted transition-shadow hover:shadow-lg"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={img.imageUrl}
-                        alt={`${img.productName} - ${img.label}`}
-                        className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
-                      />
+                      {img.status === "generating" || regeneratingId === img.id ? (
+                        <div className="flex aspect-square flex-col items-center justify-center gap-2">
+                          <Loader2 className="size-6 animate-spin text-primary" />
+                          <span className="text-[10px] text-muted-foreground">Regenerating...</span>
+                        </div>
+                      ) : (
+                        <button
+                          className="w-full"
+                          onClick={() => setLightbox(img)}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={img.imageUrl}
+                            alt={`${img.productName} - ${img.label}`}
+                            className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
+                          />
+                        </button>
+                      )}
+                      {/* Regenerate button on hover */}
+                      {img.status === "done" && regeneratingId !== img.id && (
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          className="absolute right-1 top-1 size-7 opacity-0 shadow-md transition-opacity group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            regenerateSingleShot(img);
+                          }}
+                          disabled={regeneratingId !== null}
+                          title="Regenerate this image"
+                        >
+                          <RefreshCw className="size-3.5" />
+                        </Button>
+                      )}
                       <p className="truncate px-2 py-1.5 text-xs text-muted-foreground">
                         {img.label}
                       </p>
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -159,14 +278,29 @@ export function GalleryStep() {
           onClick={() => setLightbox(null)}
         >
           <div className="relative max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute -right-2 -top-2 z-10 rounded-full bg-background shadow-lg"
-              onClick={() => setLightbox(null)}
-            >
-              <X className="size-4" />
-            </Button>
+            <div className="absolute -right-2 -top-2 z-10 flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full bg-background shadow-lg"
+                onClick={() => {
+                  regenerateSingleShot(lightbox);
+                  setLightbox(null);
+                }}
+                disabled={regeneratingId !== null}
+                title="Regenerate this image"
+              >
+                <RefreshCw className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full bg-background shadow-lg"
+                onClick={() => setLightbox(null)}
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={lightbox.imageUrl}

@@ -67,9 +67,17 @@ class RegenerateShotRequest(BaseModel):
     api_key: str | None = None
 
 
+class DownloadImageEntry(BaseModel):
+    """Single image entry for ZIP download."""
+    url: str
+    product_name: str = "Unknown"
+    label: str = "image"
+
+
 class DownloadBulkZipRequest(BaseModel):
-    """Request to download bulk images as ZIP."""
-    image_urls: list[str] = Field(default_factory=list)
+    """Request to download bulk images as ZIP, organized by product folders."""
+    image_urls: list[str] = Field(default_factory=list)  # legacy flat list
+    images: list[DownloadImageEntry] = Field(default_factory=list)  # new: with product info
     product_name: str = "bulk-products"
 
 
@@ -390,20 +398,38 @@ async def download_zip(
     request: DownloadBulkZipRequest,
     current_user: AuthUser = Depends(get_current_user),
 ):
-    """Download generated bulk images as a ZIP file."""
-    if not request.image_urls:
+    """Download generated bulk images as a ZIP file, organized by product folders."""
+    if not request.images and not request.image_urls:
         raise HTTPException(status_code=400, detail="No images to download")
+
+    def _safe(name: str) -> str:
+        return "".join(c if c.isalnum() or c in "-_ " else "_" for c in name).strip()
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for url in request.image_urls:
-            if url.startswith("/uploads/"):
-                file_path = _FRONTEND_DIR / "public" / url.lstrip("/")
-                if file_path.exists():
-                    zf.write(file_path, file_path.name)
+        if request.images:
+            # New format: organize into product-name folders
+            for entry in request.images:
+                if not entry.url.startswith("/uploads/"):
+                    continue
+                file_path = _FRONTEND_DIR / "public" / entry.url.lstrip("/")
+                if not file_path.exists():
+                    continue
+                folder = _safe(entry.product_name) or "Unknown"
+                ext = file_path.suffix or ".png"
+                filename = f"{_safe(entry.label)}{ext}"
+                arcname = f"{folder}/{filename}"
+                zf.write(file_path, arcname)
+        else:
+            # Legacy flat list fallback
+            for url in request.image_urls:
+                if url.startswith("/uploads/"):
+                    file_path = _FRONTEND_DIR / "public" / url.lstrip("/")
+                    if file_path.exists():
+                        zf.write(file_path, file_path.name)
 
     buf.seek(0)
-    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in request.product_name)
+    safe_name = _safe(request.product_name)
 
     return StreamingResponse(
         buf,
