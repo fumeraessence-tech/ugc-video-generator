@@ -241,21 +241,38 @@ export function GalleryStep() {
                           />
                         </button>
                       )}
-                      {/* Regenerate button on hover */}
+                      {/* Action buttons on hover */}
                       {img.status === "done" && !regeneratingIds.has(img.id) && (
-                        <Button
-                          variant="secondary"
-                          size="icon"
-                          className="absolute right-1 top-1 size-7 opacity-0 shadow-md transition-opacity group-hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            regenerateSingleShot(img);
-                          }}
-                          disabled={regeneratingIds.has(img.id)}
-                          title="Regenerate this image"
-                        >
-                          <RefreshCw className="size-3.5" />
-                        </Button>
+                        <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            className="size-7 shadow-md"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const a = document.createElement("a");
+                              a.href = img.imageUrl;
+                              a.download = `${img.productName} - ${img.label}.png`;
+                              a.click();
+                            }}
+                            title="Download this image"
+                          >
+                            <Download className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            className="size-7 shadow-md"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              regenerateSingleShot(img);
+                            }}
+                            disabled={regeneratingIds.has(img.id)}
+                            title="Regenerate this image"
+                          >
+                            <RefreshCw className="size-3.5" />
+                          </Button>
+                        </div>
                       )}
                       <p className="truncate px-2 py-1.5 text-xs text-muted-foreground">
                         {img.label}
@@ -283,6 +300,20 @@ export function GalleryStep() {
         >
           <div className="relative max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
             <div className="absolute -right-2 -top-2 z-10 flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full bg-background shadow-lg"
+                onClick={() => {
+                  const a = document.createElement("a");
+                  a.href = lightbox.imageUrl;
+                  a.download = `${lightbox.productName} - ${lightbox.label}.png`;
+                  a.click();
+                }}
+                title="Download this image"
+              >
+                <Download className="size-4" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, Square, RefreshCw } from "lucide-react";
+import { Loader2, Play, Square, RefreshCw, Download } from "lucide-react";
 
 export function GenerateStep() {
   const {
@@ -342,16 +342,32 @@ export function GenerateStep() {
                               className="aspect-square w-full object-cover"
                             />
                             {!isGenerating && (
-                              <Button
-                                variant="secondary"
-                                size="icon"
-                                className="absolute right-1 top-1 size-7 opacity-0 shadow-md transition-opacity group-hover:opacity-100"
-                                onClick={() => regenerateSingleShot(img)}
-                                disabled={regeneratingIds.has(img.id)}
-                                title="Regenerate this image"
-                              >
-                                <RefreshCw className="size-3.5" />
-                              </Button>
+                              <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                <Button
+                                  variant="secondary"
+                                  size="icon"
+                                  className="size-7 shadow-md"
+                                  onClick={() => {
+                                    const a = document.createElement("a");
+                                    a.href = img.imageUrl;
+                                    a.download = `${img.productName} - ${img.label}.png`;
+                                    a.click();
+                                  }}
+                                  title="Download this image"
+                                >
+                                  <Download className="size-3.5" />
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="icon"
+                                  className="size-7 shadow-md"
+                                  onClick={() => regenerateSingleShot(img)}
+                                  disabled={regeneratingIds.has(img.id)}
+                                  title="Regenerate this image"
+                                >
+                                  <RefreshCw className="size-3.5" />
+                                </Button>
+                              </div>
                             )}
                           </div>
                           <p className="truncate px-2 py-1 text-xs text-muted-foreground">
